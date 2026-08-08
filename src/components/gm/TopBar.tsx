@@ -43,7 +43,11 @@ export function TopBar() {
       </span>
 
       <div className="ml-auto flex items-center gap-2">
-        <Button variant="outline" size="sm" disabled>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => (spotifyStatus === "ligado" ? desligar() : ligar())}
+        >
           {spotifyStatus === "ligado" ? (
             <span className="text-ok">Spotify: ligado ✓</span>
           ) : (

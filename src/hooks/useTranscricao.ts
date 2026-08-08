@@ -47,8 +47,15 @@ export function useTranscricao() {
         .from("sessions")
         .update({ ended_at: new Date().toISOString() })
         .eq("id", sessionId);
+      try {
+        await gerarResumo({ data: { id: sessionId } });
+        toast.success("Resumo da sessão gerado");
+      } catch (e) {
+        console.error(e);
+        toast.error("Não consegui gerar o resumo da sessão");
+      }
     }
-  }, [sessionId, setParcial, setStatus]);
+  }, [gerarResumo, sessionId, setParcial, setStatus]);
 
   const iniciar = useCallback(async () => {
     if (sessaoRef.current) return;

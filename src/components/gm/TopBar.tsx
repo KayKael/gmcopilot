@@ -3,6 +3,7 @@ import { Keyboard, Radio, Settings, FileText, Play, Square } from "lucide-react"
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useSessionStore } from "@/store/session";
+import { useSpotify } from "@/hooks/useSpotify";
 
 const atalhos: [string, string][] = [
   ["1 – 6", "Mudar de cena (combate → épico)"],
@@ -14,6 +15,7 @@ const atalhos: [string, string][] = [
 export function TopBar() {
   const status = useSessionStore((s) => s.status);
   const spotifyStatus = useSessionStore((s) => s.spotifyStatus);
+  const { ligar, desligar } = useSpotify();
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-panel px-4">

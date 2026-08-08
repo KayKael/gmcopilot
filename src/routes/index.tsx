@@ -223,13 +223,28 @@ function Dashboard() {
                 <p className="truncate text-xs text-muted-foreground">{track?.artista ?? "—"}</p>
               </div>
               <div className="flex gap-1">
-                <Button size="icon" variant="outline" disabled aria-label="Play">
+                <Button
+                  size="icon"
+                  variant="outline"
+                  aria-label="Play"
+                  onClick={() => void controlo("play")}
+                >
                   <Play className="h-4 w-4" />
                 </Button>
-                <Button size="icon" variant="outline" disabled aria-label="Pause">
+                <Button
+                  size="icon"
+                  variant="outline"
+                  aria-label="Pause"
+                  onClick={() => void controlo("pause")}
+                >
                   <Pause className="h-4 w-4" />
                 </Button>
-                <Button size="icon" variant="outline" disabled aria-label="Seguinte">
+                <Button
+                  size="icon"
+                  variant="outline"
+                  aria-label="Seguinte"
+                  onClick={() => void controlo("next")}
+                >
                   <SkipForward className="h-4 w-4" />
                 </Button>
               </div>

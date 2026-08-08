@@ -1,142 +1,108 @@
-/**
- * Gravador de áudio por blocos: captura PCM via Web Audio e devolve
- * ficheiros WAV completos (16 kHz mono) a cada N segundos.
- * Cada bloco é auto-suficiente, por isso qualquer API de transcrição o aceita.
- */
+export type GravadorAudio = {
+  parar: () => Promise<void>;
+  setMudo: (mudo: boolean) => void;
+};
 
-export interface OpcoesGravador {
-  deviceId?: string | null;
-  /** duração de cada bloco em ms (por omissão 6000) */
+type OpcoesGravador = {
   intervaloMs?: number;
   onBloco: (wavBase64: string) => void;
-  onErro?: (e: unknown) => void;
+  onErro: (erro: unknown) => void;
+};
+
+function escreverTexto(view: DataView, offset: number, texto: string) {
+  for (let i = 0; i < texto.length; i += 1) view.setUint8(offset + i, texto.charCodeAt(i));
 }
 
-export interface Gravador {
-  parar: () => void;
-  setMudo: (mudo: boolean) => void;
-}
-
-const TAXA_SAIDA = 16000;
-
-function reamostrar(dados: Float32Array, taxaEntrada: number): Float32Array {
-  if (taxaEntrada === TAXA_SAIDA) return dados;
-  const ratio = taxaEntrada / TAXA_SAIDA;
-  const saida = new Float32Array(Math.floor(dados.length / ratio));
-  for (let i = 0; i < saida.length; i++) {
-    const pos = i * ratio;
-    const i0 = Math.floor(pos);
-    const i1 = Math.min(i0 + 1, dados.length - 1);
-    const frac = pos - i0;
-    saida[i] = (dados[i0] ?? 0) * (1 - frac) + (dados[i1] ?? 0) * frac;
-  }
-  return saida;
-}
-
-function paraWavBase64(chunks: Float32Array[], taxaEntrada: number): { b64: string; rms: number } {
-  const total = chunks.reduce((n, c) => n + c.length, 0);
-  const junto = new Float32Array(total);
-  let off = 0;
-  for (const c of chunks) {
-    junto.set(c, off);
-    off += c.length;
-  }
-  const pcm = reamostrar(junto, taxaEntrada);
-
-  let soma = 0;
-  for (let i = 0; i < pcm.length; i++) soma += (pcm[i] ?? 0) ** 2;
-  const rms = pcm.length ? Math.sqrt(soma / pcm.length) : 0;
-
-  const buffer = new ArrayBuffer(44 + pcm.length * 2);
+function criarWav(amostras: Float32Array, sampleRate: number) {
+  const buffer = new ArrayBuffer(44 + amostras.length * 2);
   const view = new DataView(buffer);
-  const escrever = (o: number, s: string) => {
-    for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i));
-  };
-  escrever(0, "RIFF");
-  view.setUint32(4, 36 + pcm.length * 2, true);
-  escrever(8, "WAVE");
-  escrever(12, "fmt ");
+  escreverTexto(view, 0, "RIFF");
+  view.setUint32(4, 36 + amostras.length * 2, true);
+  escreverTexto(view, 8, "WAVE");
+  escreverTexto(view, 12, "fmt ");
   view.setUint32(16, 16, true);
   view.setUint16(20, 1, true);
   view.setUint16(22, 1, true);
-  view.setUint32(24, TAXA_SAIDA, true);
-  view.setUint32(28, TAXA_SAIDA * 2, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
   view.setUint16(32, 2, true);
   view.setUint16(34, 16, true);
-  escrever(36, "data");
-  view.setUint32(40, pcm.length * 2, true);
-  for (let i = 0; i < pcm.length; i++) {
-    const s = Math.max(-1, Math.min(1, pcm[i] ?? 0));
-    view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  escreverTexto(view, 36, "data");
+  view.setUint32(40, amostras.length * 2, true);
+  for (let i = 0; i < amostras.length; i += 1) {
+    const valor = Math.max(-1, Math.min(1, amostras[i] ?? 0));
+    view.setInt16(44 + i * 2, valor < 0 ? valor * 0x8000 : valor * 0x7fff, true);
   }
-
-  const bytes = new Uint8Array(buffer);
-  let bin = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  }
-  return { b64: btoa(bin), rms };
+  return new Uint8Array(buffer);
 }
 
-export async function iniciarGravador(op: OpcoesGravador): Promise<Gravador> {
-  const constraints: MediaTrackConstraints = {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-  };
-  if (op.deviceId) constraints.deviceId = { exact: op.deviceId };
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+function paraBase64(bytes: Uint8Array) {
+  let binario = "";
+  const tamanho = 0x8000;
+  for (let i = 0; i < bytes.length; i += tamanho) {
+    binario += String.fromCharCode(...bytes.subarray(i, i + tamanho));
+  }
+  return btoa(binario);
+}
 
-  const ctx = new AudioContext();
-  const source = ctx.createMediaStreamSource(stream);
-  const node = ctx.createScriptProcessor(4096, 1, 1);
-  let chunks: Float32Array[] = [];
+export async function iniciarGravador({
+  intervaloMs = 6000,
+  onBloco,
+  onErro,
+}: OpcoesGravador): Promise<GravadorAudio> {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+  });
+  const contexto = new AudioContext();
+  await contexto.resume();
+  const origem = contexto.createMediaStreamSource(stream);
+  const processador = contexto.createScriptProcessor(4096, 1, 1);
+  const ganho = contexto.createGain();
+  ganho.gain.value = 0;
+  const fila: Float32Array[] = [];
+  let parado = false;
   let mudo = false;
 
-  node.onaudioprocess = (e) => {
-    if (mudo) return;
-    chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  processador.onaudioprocess = (evento) => {
+    if (parado || mudo) return;
+    fila.push(new Float32Array(evento.inputBuffer.getChannelData(0)));
   };
-  source.connect(node);
-  // ganho zero para não ecoar o microfone nas colunas
-  const silencio = ctx.createGain();
-  silencio.gain.value = 0;
-  node.connect(silencio);
-  silencio.connect(ctx.destination);
+  origem.connect(processador);
+  processador.connect(ganho);
+  ganho.connect(contexto.destination);
 
-  const enviar = () => {
-    const atual = chunks;
-    chunks = [];
-    if (!atual.length) return;
+  const emitir = () => {
+    if (parado || fila.length === 0) return;
+    const total = fila.reduce((soma, parte) => soma + parte.length, 0);
+    const todas = new Float32Array(total);
+    let offset = 0;
+    for (const parte of fila.splice(0)) {
+      todas.set(parte, offset);
+      offset += parte.length;
+    }
     try {
-      const { b64, rms } = paraWavBase64(atual, ctx.sampleRate);
-      if (rms < 0.004) return; // silêncio — não vale a pena transcrever
-      op.onBloco(b64);
-    } catch (e) {
-      op.onErro?.(e);
+      onBloco(paraBase64(criarWav(todas, contexto.sampleRate)));
+    } catch (erro) {
+      onErro(erro);
     }
   };
 
-  const timer = window.setInterval(enviar, op.intervaloMs ?? 6000);
-
+  const temporizador = window.setInterval(emitir, intervaloMs);
   return {
-    parar: () => {
-      window.clearInterval(timer);
-      enviar();
-      node.onaudioprocess = null;
-      try {
-        node.disconnect();
-        source.disconnect();
-        silencio.disconnect();
-      } catch {
-        /* ignorar */
-      }
-      stream.getTracks().forEach((t) => t.stop());
-      void ctx.close().catch(() => undefined);
+    setMudo(novoMudo) {
+      mudo = novoMudo;
+      for (const faixa of stream.getAudioTracks()) faixa.enabled = !novoMudo;
     },
-    setMudo: (v: boolean) => {
-      mudo = v;
-      stream.getAudioTracks().forEach((t) => (t.enabled = !v));
+    async parar() {
+      if (parado) return;
+      emitir();
+      parado = true;
+      window.clearInterval(temporizador);
+      processador.disconnect();
+      origem.disconnect();
+      ganho.disconnect();
+      for (const faixa of stream.getTracks()) faixa.stop();
+      await contexto.close();
     },
   };
 }

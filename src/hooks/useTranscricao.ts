@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
-import { iniciarGravador, type Gravador } from "@/lib/audio-recorder";
+import { iniciarGravador, type GravadorAudio } from "@/lib/audio-recorder";
 import { transcreverBloco } from "@/lib/transcricao.functions";
 import { resumirSessao } from "@/lib/sessao.functions";
 import { useSessionStore } from "@/store/session";
@@ -10,9 +10,11 @@ import { useSessionStore } from "@/store/session";
 export function useTranscricao() {
   const transcrever = useServerFn(transcreverBloco);
   const gerarResumo = useServerFn(resumirSessao);
-  const gravadorRef = useRef<Gravador | null>(null);
-  const sidRef = useRef<string | null>(null);
+  const gravadorRef = useRef<GravadorAudio | null>(null);
+  const filaRef = useRef<Promise<void>>(Promise.resolve());
   const falhasRef = useRef(0);
+  const aPararRef = useRef(false);
+  const sidRef = useRef<string | null>(null);
 
   const status = useSessionStore((s) => s.status);
   const setStatus = useSessionStore((s) => s.setStatus);
@@ -26,7 +28,11 @@ export function useTranscricao() {
 
   const guardarLinha = useCallback(
     async (texto: string, sid: string | null) => {
-      const linha = { id: crypto.randomUUID(), ts: new Date().toISOString(), texto };
+      const linha = {
+        id: crypto.randomUUID(),
+        ts: new Date().toISOString(),
+        texto,
+      };
       addLinha(linha);
       const { error } = await supabase
         .from("transcript_lines")
@@ -36,9 +42,44 @@ export function useTranscricao() {
     [addLinha],
   );
 
+  const ligarGravador = useCallback(
+    async (sid: string) => {
+      gravadorRef.current = await iniciarGravador({
+        intervaloMs: 6000,
+        onBloco: (wavBase64) => {
+          setParcial("a transcrever…");
+          filaRef.current = filaRef.current.then(async () => {
+            try {
+              const { texto } = await transcrever({ data: { wavBase64 } });
+              falhasRef.current = 0;
+              const limpo = texto.trim();
+              if (limpo) await guardarLinha(limpo, sid);
+            } catch (erro) {
+              console.error(erro);
+              falhasRef.current += 1;
+              if (falhasRef.current === 1) toast.error("Falha ao transcrever áudio — vou continuar a tentar");
+            } finally {
+              setParcial("");
+            }
+          });
+        },
+        onErro: (erro) => console.error("Erro ao preparar áudio:", erro),
+      });
+      falhasRef.current = 0;
+      setMicMudo(false);
+      setStatus("ativa");
+    },
+    [guardarLinha, setMicMudo, setParcial, setStatus, transcrever],
+  );
+
+  const ligarRef = useRef(ligarGravador);
+  ligarRef.current = ligarGravador;
+
   const parar = useCallback(async () => {
+    aPararRef.current = true;
     try {
-      gravadorRef.current?.parar();
+      await gravadorRef.current?.parar();
+      await filaRef.current;
     } catch {
       /* ignorar */
     }
@@ -57,14 +98,17 @@ export function useTranscricao() {
         else toast.success("Resumo da sessão gerado");
       } catch (e) {
         console.error(e);
-        toast.error(e instanceof Error ? e.message : "Não consegui gerar o resumo da sessão");
+        toast.error(
+          e instanceof Error ? e.message : "Não consegui gerar o resumo da sessão",
+        );
       }
     }
   }, [gerarResumo, sessionId, setParcial, setStatus]);
 
   const iniciar = useCallback(async () => {
     if (gravadorRef.current) return;
-    falhasRef.current = 0;
+    aPararRef.current = false;
+    filaRef.current = Promise.resolve();
     setStatus("reconectando");
     limparTranscricao();
     try {
@@ -77,30 +121,7 @@ export function useTranscricao() {
       const sid = sess.id as string;
       sidRef.current = sid;
       setSessionId(sid);
-
-      gravadorRef.current = await iniciarGravador({
-        intervaloMs: 6000,
-        onBloco: (wavBase64) => {
-          setParcial("a transcrever…");
-          void (async () => {
-            try {
-              const { texto } = await transcrever({ data: { wavBase64 } });
-              falhasRef.current = 0;
-              setParcial("");
-              const limpo = texto.trim();
-              if (limpo) await guardarLinha(limpo, sid);
-            } catch (e) {
-              console.error(e);
-              setParcial("");
-              falhasRef.current += 1;
-              if (falhasRef.current === 3) toast.error("Falhas na transcrição — a continuar a tentar");
-            }
-          })();
-        },
-        onErro: (e) => console.error(e),
-      });
-      setMicMudo(false);
-      setStatus("ativa");
+      await ligarRef.current(sid);
     } catch (e) {
       console.error(e);
       setStatus("parada");
@@ -112,7 +133,7 @@ export function useTranscricao() {
             : "Não consegui iniciar a transcrição",
       );
     }
-  }, [guardarLinha, limparTranscricao, setMicMudo, setParcial, setSessionId, setStatus, transcrever]);
+  }, [limparTranscricao, setSessionId, setStatus]);
 
   const alternarMic = useCallback(() => {
     if (!gravadorRef.current) return;
@@ -133,11 +154,8 @@ export function useTranscricao() {
 
   useEffect(
     () => () => {
-      try {
-        gravadorRef.current?.parar();
-      } catch {
-        /* ignorar */
-      }
+      aPararRef.current = true;
+      void gravadorRef.current?.parar();
     },
     [],
   );

@@ -43,11 +43,39 @@ export function MicPanel() {
 
   useEffect(() => () => void pararEscuta(), []);
 
-  const comecarEscuta = async () => {
+  const listarDispositivos = async () => {
     try {
+      const lista = await navigator.mediaDevices.enumerateDevices();
+      setDispositivos(lista.filter((d) => d.kind === "audioinput"));
+    } catch (erro) {
+      console.error(erro);
+    }
+  };
+
+  useEffect(() => {
+    setSelecionado(obterMicrofoneGuardado() ?? "auto");
+    void listarDispositivos();
+    navigator.mediaDevices?.addEventListener?.("devicechange", listarDispositivos);
+    return () =>
+      navigator.mediaDevices?.removeEventListener?.("devicechange", listarDispositivos);
+  }, []);
+
+  const escolherDispositivo = async (valor: string) => {
+    setSelecionado(valor);
+    guardarMicrofone(valor === "auto" ? null : valor);
+    if (aEscutar) {
+      await pararEscuta();
+      await comecarEscuta(valor === "auto" ? null : valor);
+    }
+  };
+
+  const comecarEscuta = async (deviceId?: string | null) => {
+    try {
+      const id = deviceId ?? (selecionado === "auto" ? null : selecionado);
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+        audio: restricoesAudio(id),
       });
+      void listarDispositivos();
       streamRef.current = stream;
       setDispositivo(stream.getAudioTracks()[0]?.label ?? "Microfone");
       const contexto = new AudioContext();

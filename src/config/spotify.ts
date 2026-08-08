@@ -1,5 +1,9 @@
 // Spotify Client ID — NÃO é secreto.
-// Lembra-te de adicionar <origem>/callback como Redirect URI na app do Spotify.
+//
+// Redirect URI no Spotify Developer Dashboard (Settings → Redirect URIs):
+//   http://127.0.0.1:8080/callback
+// (Spotify já NÃO aceita "localhost" — usa sempre 127.0.0.1.)
+// Em produção, adiciona também a URL HTTPS: https://<teu-dominio>/callback
 export const SPOTIFY_CLIENT_ID = "23fcb25eaeaa48aea5885f834b939c8c";
 
 export const SPOTIFY_SCOPES =

@@ -3,6 +3,8 @@ import { SPOTIFY_CLIENT_ID, SPOTIFY_SCOPES } from "@/config/spotify";
 const TOKEN_KEY = "gmcp.spotify.token";
 const VERIFIER_KEY = "gmcp.spotify.verifier";
 const DEVICE_KEY = "gmcp.spotify.device";
+const RESUME_LOGIN_KEY = "gmcp.spotify.resume_login";
+let resumeLoginDisparado = false;
 
 export interface SpotifyToken {
   access_token: string;
@@ -24,8 +26,17 @@ export interface NowPlaying {
   aTocar: boolean;
 }
 
-function redirectUri() {
-  return `${window.location.origin}/callback`;
+/**
+ * Spotify rejeita "localhost" como redirect URI.
+ * Em desenvolvimento usamos sempre o loopback literal 127.0.0.1.
+ * @see https://developer.spotify.com/documentation/web-api/concepts/redirect_uri
+ */
+export function redirectUri(): string {
+  const { protocol, hostname, port } = window.location;
+  const host =
+    hostname === "localhost" || hostname === "[::1]" ? "127.0.0.1" : hostname;
+  const porta = port ? `:${port}` : "";
+  return `${protocol}//${host}${porta}/callback`;
 }
 
 export function getToken(): SpotifyToken | null {
@@ -74,6 +85,17 @@ async function challengeFrom(verifier: string) {
 
 export async function iniciarLoginSpotify() {
   if (!SPOTIFY_CLIENT_ID) throw new Error("Client ID do Spotify em falta");
+
+  // Garante que o browser está em 127.0.0.1 (não localhost) antes do OAuth,
+  // para o redirect de volta bater na mesma origem do token exchange.
+  if (window.location.hostname === "localhost" || window.location.hostname === "[::1]") {
+    const url = new URL(window.location.href);
+    url.hostname = "127.0.0.1";
+    sessionStorage.setItem(RESUME_LOGIN_KEY, "1");
+    window.location.replace(url.toString());
+    return;
+  }
+
   const verifier = randomString(64);
   sessionStorage.setItem(VERIFIER_KEY, verifier);
   const params = new URLSearchParams({
@@ -85,6 +107,15 @@ export async function iniciarLoginSpotify() {
     code_challenge: await challengeFrom(verifier),
   });
   window.location.href = `https://accounts.spotify.com/authorize?${params.toString()}`;
+}
+
+/** Continua o OAuth depois do salto localhost → 127.0.0.1 (idempotente). */
+export function maybeResumeSpotifyLogin(): void {
+  if (resumeLoginDisparado) return;
+  if (sessionStorage.getItem(RESUME_LOGIN_KEY) !== "1") return;
+  resumeLoginDisparado = true;
+  sessionStorage.removeItem(RESUME_LOGIN_KEY);
+  void iniciarLoginSpotify();
 }
 
 async function tokenRequest(body: Record<string, string>): Promise<SpotifyToken> {

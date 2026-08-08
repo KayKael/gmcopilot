@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useSpotify } from "@/hooks/useSpotify";
-import { definirVolume, transferirPara, getDeviceId } from "@/lib/spotify";
+import { definirVolume, transferirPara, getDeviceId, redirectUri } from "@/lib/spotify";
 import { useSessionStore } from "@/store/session";
 
 export function SpotifyPanel() {
@@ -12,6 +12,8 @@ export function SpotifyPanel() {
   const { ligar, desligar, recarregarDispositivos } = useSpotify();
   const [volume, setVolume] = useState(70);
   const ativo = getDeviceId();
+  const uriCallback =
+    typeof window !== "undefined" ? redirectUri() : "http://127.0.0.1:8080/callback";
 
   return (
     <section className="rounded-lg border border-border bg-panel p-4">
@@ -39,6 +41,24 @@ export function SpotifyPanel() {
           </Button>
         </div>
       </div>
+
+      {spotifyStatus !== "ligado" && (
+        <div className="mt-3 rounded-md border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+          <p className="font-medium text-foreground">Redirect URI no Dashboard Spotify</p>
+          <p className="mt-1">Cola exactamente isto (Spotify rejeita localhost):</p>
+          <button
+            type="button"
+            className="mt-1.5 block w-full truncate rounded border border-border bg-background px-2 py-1 text-left font-mono text-[11px] text-foreground hover:bg-secondary"
+            title="Clicar para copiar"
+            onClick={() => {
+              void navigator.clipboard.writeText(uriCallback);
+              toast.success("Redirect URI copiado");
+            }}
+          >
+            {uriCallback}
+          </button>
+        </div>
+      )}
 
       {spotifyStatus === "ligado" && (
         <div className="mt-4 space-y-4">

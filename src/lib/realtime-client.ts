@@ -29,8 +29,6 @@ export async function iniciarTranscricao(op: OpcoesTranscricao): Promise<SessaoT
 
   const pc = new RTCPeerConnection();
   for (const track of stream.getAudioTracks()) pc.addTrack(track, stream);
-  // Recebemos áudio do modelo? Não — mas o transceiver mantém a negociação simples.
-  pc.addTransceiver("audio", { direction: "sendonly" });
 
   const dc = pc.createDataChannel("oai-events");
   const parciais = new Map<string, string>();
@@ -74,17 +72,19 @@ export async function iniciarTranscricao(op: OpcoesTranscricao): Promise<SessaoT
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
 
-  const res = await fetch("https://api.openai.com/v1/realtime?intent=transcription", {
+  // Endpoint GA: /v1/realtime/calls (o antigo ?intent=transcription devolve 400 no WebRTC)
+  const res = await fetch("https://api.openai.com/v1/realtime/calls", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${op.token}`,
       "Content-Type": "application/sdp",
-      "OpenAI-Beta": "realtime=v1",
     },
     body: offer.sdp ?? "",
   });
 
   if (!res.ok) {
+    const detalhe = await res.text().catch(() => "");
+    console.error("Falha SDP realtime:", res.status, detalhe);
     stream.getTracks().forEach((t) => t.stop());
     pc.close();
     op.onEstado("erro");

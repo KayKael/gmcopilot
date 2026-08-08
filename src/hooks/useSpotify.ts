@@ -6,6 +6,7 @@ import {
   iniciarLoginSpotify,
   listarDispositivos,
   logoutSpotify,
+  maybeResumeSpotifyLogin,
   obterAtual,
 } from "@/lib/spotify";
 
@@ -36,6 +37,15 @@ export function useSpotify(intervaloMs = 5000) {
     if (!getToken()) return;
     void listarDispositivos().then(setDevices);
   }, [setDevices]);
+
+  // Continua o OAuth depois de saltar de localhost → 127.0.0.1
+  useEffect(() => {
+    try {
+      maybeResumeSpotifyLogin();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Falha a ligar o Spotify");
+    }
+  }, []);
 
   const ligar = useCallback(() => {
     void iniciarLoginSpotify().catch((e: unknown) =>

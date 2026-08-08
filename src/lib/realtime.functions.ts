@@ -13,10 +13,12 @@ export const criarTokenTranscricao = createServerFn({ method: "POST" }).handler(
     audio: {
       input: {
         transcription: {
-          model: "gpt-4o-transcribe",
-          language: "pt",
+          model: "gpt-live-transcribe",
+          languages: ["pt"],
           prompt:
             "Sessão de RPG de mesa em português europeu. Termos de D&D, nomes próprios de fantasia.",
+          keywords: ["D&D", "dado", "iniciativa", "percepção", "ataque", "salvaguarda"],
+          delay: "low",
         },
         turn_detection: {
           type: "server_vad",

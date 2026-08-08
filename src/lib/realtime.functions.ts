@@ -20,13 +20,8 @@ export const criarTokenTranscricao = createServerFn({ method: "POST" }).handler(
           keywords: ["D&D", "dado", "iniciativa", "percepção", "ataque", "salvaguarda"],
           delay: "low",
         },
-        turn_detection: {
-          type: "server_vad",
-          threshold: 0.5,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 600,
-        },
         noise_reduction: { type: "near_field" },
+
       },
     },
   };

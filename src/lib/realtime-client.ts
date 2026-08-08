@@ -27,7 +27,9 @@ export async function iniciarTranscricao(op: OpcoesTranscricao): Promise<SessaoT
   if (op.deviceId) audio.deviceId = { exact: op.deviceId };
   const stream = await navigator.mediaDevices.getUserMedia({ audio });
 
-  const pc = new RTCPeerConnection();
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  });
   for (const track of stream.getAudioTracks()) pc.addTrack(track, stream);
 
   const dc = pc.createDataChannel("oai-events");

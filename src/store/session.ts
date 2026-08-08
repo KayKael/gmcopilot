@@ -46,6 +46,8 @@ interface SessionState {
   addLinha: (l: TranscriptLine) => void;
   setParcial: (t: string) => void;
   limparTranscricao: () => void;
+  micMudo: boolean;
+  setMicMudo: (v: boolean) => void;
 
   // spotify
   spotifyStatus: SpotifyStatus;

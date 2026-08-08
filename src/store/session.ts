@@ -83,7 +83,6 @@ export const useSessionStore = create<SessionState>((set) => ({
   spotifyStatus: "desligado",
   setSpotifyStatus: (spotifyStatus) => set({ spotifyStatus }),
   track: null,
-  track: null,
   setTrack: (track) => set({ track }),
   devices: [],
   setDevices: (devices) => set({ devices }),

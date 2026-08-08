@@ -5,6 +5,7 @@ export type GravadorAudio = {
 
 type OpcoesGravador = {
   intervaloMs?: number;
+  deviceId?: string | null;
   onBloco: (wavBase64: string) => void;
   onErro: (erro: unknown) => void;
 };

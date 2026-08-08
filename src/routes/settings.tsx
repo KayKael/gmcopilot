@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { TopBar } from "@/components/gm/TopBar";
 import { SpotifyPanel } from "@/components/gm/SpotifyPanel";
 import { SfxPanel } from "@/components/gm/SfxPanel";
+import { MicPanel } from "@/components/gm/MicPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -278,6 +279,7 @@ function SettingsPage() {
 
           <SpotifyPanel />
           <SfxPanel />
+          <MicPanel />
         </div>
       </main>
     </div>

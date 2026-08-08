@@ -38,7 +38,7 @@ export function MicPanel() {
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
       });
       streamRef.current = stream;
-      setDispositivo(stream.getAudioTracks()[0]?.label ?? "Microfone预");
+      setDispositivo(stream.getAudioTracks()[0]?.label ?? "Microfone");
       const contexto = new AudioContext();
       await contexto.resume();
       contextoRef.current = contexto;

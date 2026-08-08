@@ -75,6 +75,8 @@ function Dashboard() {
     sfxSugeridos,
     setSfxSugeridos,
   } = useSessionStore();
+  const spotifyStatus = useSessionStore((s) => s.spotifyStatus);
+  const { refrescar } = useSpotify();
 
   useEffect(() => {
     void (async () => {
@@ -94,9 +96,49 @@ function Dashboard() {
   function mudarCena(key: SceneConfig["key"]) {
     setCena(key, "manual", null);
     setSfxSugeridos([]);
+    const alvo = scenes.find((s) => s.key === key);
+    if (spotifyStatus === "ligado" && alvo?.spotify_playlist_uri) {
+      void (async () => {
+        const ok = await tocarPlaylist(alvo.spotify_playlist_uri!);
+        if (!ok) toast.error("Não consegui trocar a playlist (verifica o dispositivo ativo)");
+        await refrescar();
+      })();
+    }
   }
 
+  async function controlo(acao: "play" | "pause" | "next") {
+    if (spotifyStatus !== "ligado") {
+      toast.error("Liga o Spotify primeiro");
+      return;
+    }
+    if (acao === "play") await play();
+    else if (acao === "pause") await pause();
+    else await seguinte();
+    setTimeout(() => void refrescar(), 400);
+  }
+
+  // Atalhos: 1–6 muda de cena, espaço faz play/pause
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        void controlo(track?.aTocar ? "pause" : "play");
+        return;
+      }
+      const n = Number(e.key);
+      if (n >= 1 && n <= 9) {
+        const alvo = scenes.find((s) => s.ordem === n);
+        if (alvo) mudarCena(alvo.key);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   const Icon = sceneIcon(cena?.icone ?? "");
+
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">

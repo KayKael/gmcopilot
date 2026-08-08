@@ -19,14 +19,13 @@ export interface SessaoTranscricao {
 export async function iniciarTranscricao(op: OpcoesTranscricao): Promise<SessaoTranscricao> {
   op.onEstado("a-ligar");
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      deviceId: op.deviceId ? { exact: op.deviceId } : undefined,
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-    },
-  });
+  const audio: MediaTrackConstraints = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  };
+  if (op.deviceId) audio.deviceId = { exact: op.deviceId };
+  const stream = await navigator.mediaDevices.getUserMedia({ audio });
 
   const pc = new RTCPeerConnection();
   for (const track of stream.getAudioTracks()) pc.addTrack(track, stream);

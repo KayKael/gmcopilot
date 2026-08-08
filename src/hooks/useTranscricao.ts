@@ -64,6 +64,29 @@ export function useTranscricao() {
           });
         },
         onErro: (erro) => console.error("Erro ao preparar áudio:", erro),
+        onSemAudio: () => {
+          if (aPararRef.current || reiniciandoRef.current) return;
+          reiniciandoRef.current = true;
+          console.warn("Áudio parou de chegar — a reiniciar o gravador");
+          setStatus("reconectando");
+          void (async () => {
+            try {
+              await gravadorRef.current?.parar();
+            } catch {
+              /* ignorar */
+            }
+            gravadorRef.current = null;
+            try {
+              if (!aPararRef.current) await ligarRef.current(sid);
+            } catch (erro) {
+              console.error(erro);
+              toast.error("Perdi o microfone — carrega em parar e iniciar de novo");
+              setStatus("parada");
+            } finally {
+              reiniciandoRef.current = false;
+            }
+          })();
+        },
       });
       falhasRef.current = 0;
       setMicMudo(false);

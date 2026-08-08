@@ -73,15 +73,15 @@ export async function chatEstruturado<T>(
   }
 }
 
-/** Embeddings via Lovable AI (1536 dimensões, igual à coluna doc_chunks.embedding). */
+/** Embeddings via OpenAI (1536 dimensões, igual à coluna doc_chunks.embedding). */
 export async function embed(textos: string[]): Promise<number[][]> {
-  const key = process.env["LOVABLE_API_KEY"];
-  if (!key) throw new AIError("LOVABLE_API_KEY em falta", 500);
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/embeddings", {
+  const key = process.env["OPENAI_API_KEY"];
+  if (!key) throw new AIError("OPENAI_API_KEY em falta", 500);
+  const res = await fetch("https://api.openai.com/v1/embeddings", {
     method: "POST",
-    headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "openai/text-embedding-3-small",
+      model: "text-embedding-3-small",
       input: textos,
       dimensions: 1536,
     }),
@@ -90,9 +90,9 @@ export async function embed(textos: string[]): Promise<number[][]> {
     const detalhe = await res.text();
     console.error("Embeddings:", res.status, detalhe);
     if (res.status === 429) throw new AIError("Limite de pedidos atingido", 429);
-    if (res.status === 402) throw new AIError("Créditos de IA esgotados", 402);
     throw new AIError(`Falha a gerar embeddings (${res.status})`, res.status);
   }
   const json = (await res.json()) as { data?: { embedding: number[] }[] };
   return (json.data ?? []).map((d) => d.embedding);
 }
+

@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { SPOTIFY_CLIENT_ID, SPOTIFY_SCOPES } from "@/config/spotify";
 
 const TOKEN_KEY = "gmcp.spotify.token";

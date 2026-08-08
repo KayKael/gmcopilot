@@ -21,10 +21,14 @@ export function TopBar() {
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-panel px-4">
-      <div className="flex items-center gap-2">
+      <Link
+        to="/"
+        className="flex items-center gap-2 rounded-md outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label="Ir para a página inicial"
+      >
         <Radio className="h-5 w-5 text-primary" />
         <span className="text-sm font-semibold tracking-tight">GM Co-Pilot</span>
-      </div>
+      </Link>
 
       <span
         className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"

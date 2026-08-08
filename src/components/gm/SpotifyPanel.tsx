@@ -1,19 +1,40 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useSpotify } from "@/hooks/useSpotify";
-import { definirVolume, transferirPara, getDeviceId, redirectUri } from "@/lib/spotify";
+import { useTocarMood } from "@/hooks/useCena";
+import {
+  definirVolume,
+  transferirPara,
+  getDeviceId,
+  redirectUri,
+  getCrossfadeEnabled,
+} from "@/lib/spotify";
+import { moodByKey } from "@/lib/music-moods";
 import { useSessionStore } from "@/store/session";
 
 export function SpotifyPanel() {
   const spotifyStatus = useSessionStore((s) => s.spotifyStatus);
   const devices = useSessionStore((s) => s.devices);
+  const moods = useSessionStore((s) => s.moods);
+  const moodAtual = useSessionStore((s) => s.moodAtual);
+  const djAuto = useSessionStore((s) => s.djAuto);
+  const setDjAuto = useSessionStore((s) => s.setDjAuto);
+  const crossfade = useSessionStore((s) => s.crossfade);
+  const setCrossfade = useSessionStore((s) => s.setCrossfade);
   const { ligar, desligar, recarregarDispositivos } = useSpotify();
+  const tocarMood = useTocarMood();
   const [volume, setVolume] = useState(70);
   const ativo = getDeviceId();
   const uriCallback =
     typeof window !== "undefined" ? redirectUri() : "http://127.0.0.1:8080/callback";
+  const mood = moodByKey(moods, moodAtual);
+
+  useEffect(() => {
+    setCrossfade(getCrossfadeEnabled());
+  }, [setCrossfade]);
+
 
   return (
     <section className="rounded-lg border border-border bg-panel p-4">
@@ -62,6 +83,65 @@ export function SpotifyPanel() {
 
       {spotifyStatus === "ligado" && (
         <div className="mt-4 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-medium">Mood DJ</p>
+              <p className="text-[11px] text-muted-foreground">
+                {mood
+                  ? `A tocar: ${mood.nome}`
+                  : "O DJ escolhe o mood pela transcrição + cena"}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <Button
+                size="sm"
+                variant={djAuto ? "default" : "outline"}
+                onClick={() => setDjAuto(!djAuto)}
+              >
+                DJ Auto: {djAuto ? "ON" : "OFF"}
+              </Button>
+              <Button
+                size="sm"
+                variant={crossfade ? "default" : "outline"}
+                onClick={() => setCrossfade(!crossfade)}
+                title="Ponte de preview no browser enquanto o Spotify troca (não é o Dani)"
+              >
+                Crossfade: {crossfade ? "ON" : "OFF"}
+              </Button>
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Crossfade usa o preview de 30s no browser sobreposto ao volume do Spotify. Religa a
+            conta se as playlists privadas falharem (novos scopes).
+          </p>
+
+          <div>
+            <Label className="text-xs text-muted-foreground">Mood manual</Label>
+            <select
+              className="mt-1.5 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+              value={moodAtual ?? ""}
+              onChange={(e) => {
+                const key = e.target.value;
+                if (!key) return;
+                void tocarMood(key, { pausarDj: true }).then((ok) => {
+                  if (ok) toast.success(`Mood: ${moodByKey(moods, key)?.nome ?? key}`);
+                });
+              }}
+            >
+              <option value="" disabled>
+                Escolher mood…
+              </option>
+              {moods.map((m) => (
+                <option key={m.key} value={m.key}>
+                  {m.nome}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Override imediato; pausa o DJ Auto por 2 minutos.
+            </p>
+          </div>
+
           <div>
             <Label className="text-xs text-muted-foreground">Dispositivos</Label>
             <div className="mt-1.5 flex flex-wrap gap-1.5">

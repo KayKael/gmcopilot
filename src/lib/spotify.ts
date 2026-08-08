@@ -1,9 +1,16 @@
 import { SPOTIFY_CLIENT_ID, SPOTIFY_SCOPES } from "@/config/spotify";
+import { normalizarPlaylistUri } from "@/lib/music-moods";
+import {
+  iniciarPonte,
+  terminarPonte,
+  pararPonte,
+} from "@/lib/spotify-crossfade";
 
 const TOKEN_KEY = "gmcp.spotify.token";
 const VERIFIER_KEY = "gmcp.spotify.verifier";
 const DEVICE_KEY = "gmcp.spotify.device";
 const RESUME_LOGIN_KEY = "gmcp.spotify.resume_login";
+const CROSSFADE_KEY = "gmcp.spotify.crossfade";
 let resumeLoginDisparado = false;
 
 export interface SpotifyToken {
@@ -24,6 +31,12 @@ export interface NowPlaying {
   artista: string;
   capa: string | null;
   aTocar: boolean;
+}
+
+export interface FaixaEscolhida {
+  uri: string;
+  preview_url: string | null;
+  nome: string;
 }
 
 /**
@@ -68,6 +81,19 @@ export function setDeviceId(id: string | null) {
   else localStorage.removeItem(DEVICE_KEY);
 }
 
+/** Crossfade por ponte de preview (default ON). */
+export function getCrossfadeEnabled(): boolean {
+  if (typeof window === "undefined") return true;
+  const raw = localStorage.getItem(CROSSFADE_KEY);
+  if (raw === null) return true;
+  return raw === "1";
+}
+
+export function setCrossfadeEnabled(on: boolean) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(CROSSFADE_KEY, on ? "1" : "0");
+}
+
 function randomString(len: number) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
   const arr = new Uint8Array(len);
@@ -86,8 +112,6 @@ async function challengeFrom(verifier: string) {
 export async function iniciarLoginSpotify() {
   if (!SPOTIFY_CLIENT_ID) throw new Error("Client ID do Spotify em falta");
 
-  // Garante que o browser está em 127.0.0.1 (não localhost) antes do OAuth,
-  // para o redirect de volta bater na mesma origem do token exchange.
   if (window.location.hostname === "localhost" || window.location.hostname === "[::1]") {
     const url = new URL(window.location.href);
     url.hostname = "127.0.0.1";
@@ -226,10 +250,6 @@ export async function pause() {
   await spotifyFetch(comDispositivo("/me/player/pause"), { method: "PUT" });
 }
 
-export async function seguinte() {
-  await spotifyFetch(comDispositivo("/me/player/next"), { method: "POST" });
-}
-
 export async function definirVolume(percent: number) {
   await spotifyFetch(comDispositivo(`/me/player/volume?volume_percent=${Math.round(percent)}`), {
     method: "PUT",
@@ -244,18 +264,301 @@ export async function transferirPara(deviceId: string) {
   });
 }
 
-/** Toca a playlist de uma cena com fade suave de volume. */
-export async function tocarPlaylist(uri: string, fade = true) {
-  if (!uri) return false;
-  if (fade) {
-    for (const v of [50, 25, 10]) await definirVolume(v);
-  }
-  const res = await spotifyFetch(comDispositivo("/me/player/play"), {
-    method: "PUT",
-    body: JSON.stringify({ context_uri: uri }),
+let playlistTransitionGen = 0;
+let playlistTransitionAbort: AbortController | null = null;
+
+function sleep(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const t = setTimeout(() => resolve(), ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(t);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true },
+    );
   });
-  if (fade) {
-    for (const v of [30, 55, 80]) await definirVolume(v);
+}
+
+async function volumeAtual(): Promise<number> {
+  const res = await spotifyFetch("/me/player");
+  if (!res || res.status === 204 || !res.ok) return 70;
+  const data = (await res.json()) as { device?: { volume_percent?: number | null } };
+  const v = data.device?.volume_percent;
+  return typeof v === "number" ? v : 70;
+}
+
+async function fadeVolume(
+  de: number,
+  para: number,
+  signal: AbortSignal,
+  duracaoMs: number,
+  steps = 16,
+) {
+  const stepMs = Math.max(55, Math.round(duracaoMs / steps));
+  let ultimo = Math.round(de);
+  for (let i = 1; i <= steps; i++) {
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    const v = Math.round(de + ((para - de) * i) / steps);
+    if (v !== ultimo) {
+      await definirVolume(Math.max(0, Math.min(100, v)));
+      ultimo = v;
+    }
+    await sleep(stepMs, signal);
   }
-  return Boolean(res?.ok);
+  if (ultimo !== Math.round(para)) {
+    await definirVolume(Math.max(0, Math.min(100, Math.round(para))));
+  }
+}
+
+function iniciarTransicao() {
+  playlistTransitionAbort?.abort();
+  pararPonte();
+  const ac = new AbortController();
+  playlistTransitionAbort = ac;
+  const gen = ++playlistTransitionGen;
+  return {
+    signal: ac.signal,
+    aindaActiva: () => gen === playlistTransitionGen && !ac.signal.aborted,
+  };
+}
+
+async function activarDispositivo(): Promise<string | null> {
+  const devices = await listarDispositivos();
+  if (!devices.length) return null;
+  const preferido =
+    devices.find((d) => d.id === getDeviceId()) ??
+    devices.find((d) => d.is_active) ??
+    devices[0];
+  if (!preferido?.id) return null;
+  await transferirPara(preferido.id);
+  await sleep(250);
+  return preferido.id;
+}
+
+/**
+ * Escolhe faixa aleatória da playlist.
+ * Prefere faixas com preview_url (para a ponte de crossfade).
+ */
+export async function escolherFaixaAleatoria(
+  playlistUri: string,
+): Promise<FaixaEscolhida | null> {
+  const id = playlistUri.replace(/^spotify:playlist:/, "");
+  if (!id) return null;
+
+  const meta = await spotifyFetch(`/playlists/${id}?fields=tracks.total`);
+  let total = 0;
+  if (meta?.ok) {
+    const m = (await meta.json()) as { tracks?: { total?: number } };
+    total = m.tracks?.total ?? 0;
+  }
+
+  const limit = 50;
+  const maxOffset =
+    total > limit ? Math.floor(Math.random() * Math.max(1, total - limit + 1)) : 0;
+
+  const res = await spotifyFetch(
+    `/playlists/${id}/tracks?fields=items(track(uri,preview_url,name))&limit=${limit}&offset=${maxOffset}`,
+  );
+  if (!res?.ok) return null;
+
+  const data = (await res.json()) as {
+    items?: { track?: { uri?: string; preview_url?: string | null; name?: string } | null }[];
+  };
+
+  const faixas: FaixaEscolhida[] = [];
+  for (const item of data.items ?? []) {
+    const t = item.track;
+    if (!t?.uri?.startsWith("spotify:track:")) continue;
+    faixas.push({
+      uri: t.uri,
+      preview_url: t.preview_url ?? null,
+      nome: t.name ?? "—",
+    });
+  }
+  if (!faixas.length) return null;
+
+  const comPreview = faixas.filter((f) => f.preview_url);
+  const pool = comPreview.length ? comPreview : faixas;
+  return pool[Math.floor(Math.random() * pool.length)] ?? null;
+}
+
+/** Próxima faixa na fila do player (para skip com ponte). */
+async function obterProximaDaFila(): Promise<FaixaEscolhida | null> {
+  const res = await spotifyFetch("/me/player/queue");
+  if (!res?.ok) return null;
+  const data = (await res.json()) as {
+    queue?: { uri?: string; preview_url?: string | null; name?: string }[];
+  };
+  const next = data.queue?.[0];
+  if (!next?.uri?.startsWith("spotify:track:")) return null;
+  return {
+    uri: next.uri,
+    preview_url: next.preview_url ?? null,
+    nome: next.name ?? "—",
+  };
+}
+
+/**
+ * Dip + ponte de preview opcional → acção → sobe volume.
+ * Sem preview / crossfade OFF → só dip (comportamento anterior).
+ */
+async function comCrossfade(
+  acao: () => Promise<void>,
+  previewUrl: string | null,
+): Promise<boolean> {
+  const { signal, aindaActiva } = iniciarTransicao();
+  const usarPonte = getCrossfadeEnabled() && Boolean(previewUrl);
+
+  try {
+    const baseVol = await volumeAtual();
+    const volMix = Math.max(32, Math.round(baseVol * 0.48));
+
+    const fadeOutSpotify = fadeVolume(baseVol, volMix, signal, 1000, 16);
+    const ponteIn = usarPonte
+      ? iniciarPonte(previewUrl!, signal, 900)
+      : Promise.resolve(false);
+
+    const [, ponteOk] = await Promise.all([fadeOutSpotify, ponteIn]);
+    if (!aindaActiva()) {
+      pararPonte();
+      return false;
+    }
+
+    await acao();
+    if (!aindaActiva()) {
+      pararPonte();
+      return false;
+    }
+
+    await definirVolume(volMix);
+    await sleep(120, signal);
+
+    if (ponteOk && aindaActiva()) {
+      await Promise.all([
+        terminarPonte(signal, 700),
+        fadeVolume(volMix, baseVol, signal, 1100, 16),
+      ]);
+    } else if (aindaActiva()) {
+      pararPonte();
+      await fadeVolume(volMix, baseVol, signal, 1100, 16);
+    }
+
+    return aindaActiva();
+  } catch (e) {
+    pararPonte();
+    if (e instanceof DOMException && e.name === "AbortError") return false;
+    console.error(e);
+    return false;
+  }
+}
+
+/** Segue para a próxima faixa com transição suave (+ ponte se houver preview na fila). */
+export async function seguinte() {
+  const proxima = getCrossfadeEnabled() ? await obterProximaDaFila() : null;
+  await comCrossfade(
+    async () => {
+      await spotifyFetch(comDispositivo("/me/player/next"), { method: "POST" });
+    },
+    proxima?.preview_url ?? null,
+  );
+}
+
+export type TocarPlaylistResult = "ok" | "premium" | "nodevice" | "fail" | "cancelled";
+
+/**
+ * Troca de playlist com crossfade (ponte preview) ou dip:
+ * escolhe faixa aleatória → fade ↓ + preview ↑ → play → preview ↓ + fade ↑.
+ */
+export async function tocarPlaylist(
+  uri: string,
+  fade = true,
+): Promise<TocarPlaylistResult> {
+  const contextUri = normalizarPlaylistUri(uri);
+  if (!contextUri.startsWith("spotify:playlist:")) return "fail";
+
+  const faixa = await escolherFaixaAleatoria(contextUri);
+  const offset = faixa
+    ? { uri: faixa.uri }
+    : { position: Math.floor(Math.random() * 20) };
+
+  const body = JSON.stringify({
+    context_uri: contextUri,
+    offset,
+  });
+
+  if (!fade) {
+    const res = await spotifyFetch(comDispositivo("/me/player/play"), {
+      method: "PUT",
+      body,
+    });
+    void spotifyFetch(comDispositivo("/me/player/shuffle?state=true"), {
+      method: "PUT",
+    });
+    if (res?.status === 403) return "premium";
+    if (res?.status === 404) return "nodevice";
+    return res?.ok || res?.status === 204 ? "ok" : "fail";
+  }
+
+  let resultado: TocarPlaylistResult = "ok";
+  let falhou: TocarPlaylistResult | null = null;
+
+  const ok = await comCrossfade(
+    async () => {
+      void spotifyFetch(comDispositivo("/me/player/shuffle?state=true"), {
+        method: "PUT",
+      });
+
+      let res = await spotifyFetch(comDispositivo("/me/player/play"), {
+        method: "PUT",
+        body,
+      });
+
+      if (res?.status === 404) {
+        const deviceId = await activarDispositivo();
+        if (!deviceId) {
+          falhou = "nodevice";
+          return;
+        }
+        res = await spotifyFetch(`/me/player/play?device_id=${deviceId}`, {
+          method: "PUT",
+          body,
+        });
+      }
+
+      if (res?.status === 403) {
+        falhou = "premium";
+        return;
+      }
+      if (res?.status === 404) {
+        falhou = "nodevice";
+        return;
+      }
+      if (!res?.ok && res?.status !== 204) {
+        falhou = "fail";
+        return;
+      }
+
+      void spotifyFetch(comDispositivo("/me/player/shuffle?state=true"), {
+        method: "PUT",
+      });
+    },
+    faixa?.preview_url ?? null,
+  );
+
+  if (falhou) return falhou;
+  return ok ? resultado : "cancelled";
+}
+
+/** Cancela fade/transição em curso (ex.: nova troca imediata). */
+export function cancelarTransicaoPlaylist() {
+  playlistTransitionAbort?.abort();
+  playlistTransitionAbort = null;
+  playlistTransitionGen += 1;
+  pararPonte();
 }

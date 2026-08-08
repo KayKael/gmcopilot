@@ -9,6 +9,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { SFX_KEYS, SFX_META, sceneIcon, type SceneConfig } from "@/lib/scenes";
+import {
+  carregarMoods,
+  normalizarPlaylistUri,
+  type MusicMood,
+} from "@/lib/music-moods";
 import { useSessionStore } from "@/store/session";
 
 export const Route = createFileRoute("/settings")({
@@ -32,24 +37,33 @@ export const Route = createFileRoute("/settings")({
 
 function SettingsPage() {
   const [rows, setRows] = useState<SceneConfig[]>([]);
+  const [moodRows, setMoodRows] = useState<MusicMood[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingMoods, setSavingMoods] = useState(false);
   const setScenes = useSessionStore((s) => s.setScenes);
+  const setMoods = useSessionStore((s) => s.setMoods);
 
   useEffect(() => {
     void (async () => {
-      const { data, error } = await supabase
-        .from("scene_configs")
-        .select("*")
-        .order("ordem");
+      const [{ data, error }, moods] = await Promise.all([
+        supabase.from("scene_configs").select("*").order("ordem"),
+        carregarMoods(),
+      ]);
       if (error) toast.error("Não consegui carregar as cenas");
       else setRows((data ?? []) as unknown as SceneConfig[]);
+      setMoodRows(moods);
+      setMoods(moods);
       setLoading(false);
     })();
-  }, []);
+  }, [setMoods]);
 
   function patch(id: string, changes: Partial<SceneConfig>) {
     setRows((r) => r.map((row) => (row.id === id ? { ...row, ...changes } : row)));
+  }
+
+  function patchMood(key: string, changes: Partial<MusicMood>) {
+    setMoodRows((r) => r.map((row) => (row.key === key ? { ...row, ...changes } : row)));
   }
 
   function toggleSfx(row: SceneConfig, sfx: string) {
@@ -83,6 +97,42 @@ function SettingsPage() {
     }
   }
 
+  async function guardarMoods() {
+    setSavingMoods(true);
+    const payload = moodRows.map((m) => ({
+      ...(m.id ? { id: m.id } : {}),
+      key: m.key,
+      nome: m.nome,
+      descricao: m.descricao,
+      spotify_playlist_uri: normalizarPlaylistUri(m.spotify_playlist_uri),
+      ordem: m.ordem,
+      ativo: m.ativo ?? true,
+    }));
+    const { error } = await supabase.from("music_moods").upsert(payload, {
+      onConflict: "key",
+    });
+    setSavingMoods(false);
+    if (error) {
+      toast.error(
+        "Falhou a gravação dos moods: " +
+          error.message +
+          " (aplica a migration music_moods se a tabela ainda não existir)",
+      );
+      // Mesmo sem BD, actualiza o store local para a sessão actual
+      const locais = moodRows.map((m) => ({
+        ...m,
+        spotify_playlist_uri: normalizarPlaylistUri(m.spotify_playlist_uri),
+      }));
+      setMoodRows(locais);
+      setMoods(locais);
+      return;
+    }
+    const refreshed = await carregarMoods();
+    setMoodRows(refreshed);
+    setMoods(refreshed);
+    toast.success("Moods musicais guardados");
+  }
+
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       <TopBar />
@@ -92,35 +142,19 @@ function SettingsPage() {
             <div>
               <h1 className="text-lg font-semibold">Definições</h1>
               <p className="text-xs text-muted-foreground">
-                Configuração das 6 cenas: cor, playlist e efeitos sugeridos.
+                Cenas (UI/SFX) e moods musicais (Mood DJ) são eixos separados.
               </p>
             </div>
             <Button onClick={() => void guardar()} disabled={saving || loading}>
-              {saving ? "A guardar…" : "Guardar"}
+              {saving ? "A guardar…" : "Guardar cenas"}
             </Button>
           </div>
-
-          {!loading && rows.some((r) => !r.spotify_playlist_uri?.trim()) && (
-            <div className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-muted-foreground">
-              <p className="font-medium text-foreground">Playlists em falta</p>
-              <p className="mt-1">
-                Preenche o URI <code className="text-foreground">spotify:playlist:…</code> em cada
-                cena e guarda. Sem playlist, a troca automática de música é ignorada.
-              </p>
-              <p className="mt-1">
-                Em falta:{" "}
-                {rows
-                  .filter((r) => !r.spotify_playlist_uri?.trim())
-                  .map((r) => r.nome)
-                  .join(", ")}
-              </p>
-            </div>
-          )}
 
           {loading ? (
             <p className="text-sm text-muted-foreground">A carregar…</p>
           ) : (
             <div className="space-y-3">
+              <h2 className="text-sm font-semibold">Cenas (UI / SFX / atalhos 1–6)</h2>
               {rows.map((row) => {
                 const Icon = sceneIcon(row.icone);
                 return (
@@ -129,7 +163,7 @@ function SettingsPage() {
                     className="rounded-lg border border-border bg-panel p-4"
                     style={{ borderLeft: `3px solid ${row.cor}` }}
                   >
-                    <div className="grid gap-3 md:grid-cols-[auto_1fr_auto_2fr]">
+                    <div className="grid gap-3 md:grid-cols-[auto_1fr_auto]">
                       <div className="flex items-center gap-2">
                         <Icon className="h-5 w-5" style={{ color: row.cor }} />
                         <span className="text-xs text-muted-foreground">{row.ordem}</span>
@@ -148,16 +182,6 @@ function SettingsPage() {
                           value={row.cor}
                           onChange={(e) => patch(row.id, { cor: e.target.value })}
                           className="h-9 w-16 cursor-pointer rounded border border-border bg-transparent"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">Playlist Spotify</Label>
-                        <Input
-                          value={row.spotify_playlist_uri ?? ""}
-                          placeholder="spotify:playlist:..."
-                          onChange={(e) =>
-                            patch(row.id, { spotify_playlist_uri: e.target.value })
-                          }
                         />
                       </div>
                     </div>
@@ -190,6 +214,67 @@ function SettingsPage() {
               })}
             </div>
           )}
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold">Moods musicais</h2>
+                <p className="text-xs text-muted-foreground">
+                  Catálogo do Mood DJ. Aceita URI ou link open.spotify.com/playlist/…
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => void guardarMoods()}
+                disabled={savingMoods || loading}
+              >
+                {savingMoods ? "A guardar…" : "Guardar moods"}
+              </Button>
+            </div>
+
+            {!loading &&
+              moodRows.map((m) => (
+                <section key={m.key} className="rounded-lg border border-border bg-panel p-4">
+                  <div className="grid gap-3 md:grid-cols-[1fr_1fr_2fr]">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Nome</Label>
+                      <Input
+                        value={m.nome}
+                        onChange={(e) => patchMood(m.key, { nome: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Key</Label>
+                      <Input value={m.key} disabled className="opacity-70" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Playlist</Label>
+                      <Input
+                        value={m.spotify_playlist_uri}
+                        placeholder="spotify:playlist:… ou https://open.spotify.com/playlist/…"
+                        onChange={(e) =>
+                          patchMood(m.key, { spotify_playlist_uri: e.target.value })
+                        }
+                        onBlur={(e) =>
+                          patchMood(m.key, {
+                            spotify_playlist_uri: normalizarPlaylistUri(e.target.value),
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-3 space-y-1">
+                    <Label className="text-xs text-muted-foreground">
+                      Descrição para a IA
+                    </Label>
+                    <Input
+                      value={m.descricao}
+                      onChange={(e) => patchMood(m.key, { descricao: e.target.value })}
+                    />
+                  </div>
+                </section>
+              ))}
+          </div>
 
           <SpotifyPanel />
           <SfxPanel />

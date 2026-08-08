@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import type { SceneConfig, SceneKey } from "@/lib/scenes";
+import type { MusicMood } from "@/lib/music-moods";
+import { setCrossfadeEnabled } from "@/lib/spotify";
 
 export interface TranscriptLine {
   id: string;
@@ -40,6 +42,19 @@ interface SessionState {
   sfxSugeridos: string[];
   setSfxSugeridos: (s: string[]) => void;
 
+  // mood DJ
+  moods: MusicMood[];
+  setMoods: (m: MusicMood[]) => void;
+  moodAtual: string | null;
+  playlistUriAtual: string | null;
+  djAuto: boolean;
+  setDjAuto: (v: boolean) => void;
+  moodPausaAte: number;
+  setMood: (moodKey: string | null, playlistUri?: string | null) => void;
+  pausarDj: (ms: number) => void;
+  crossfade: boolean;
+  setCrossfade: (v: boolean) => void;
+
   // transcrição
   linhas: TranscriptLine[];
   parcial: string;
@@ -75,6 +90,26 @@ export const useSessionStore = create<SessionState>((set) => ({
     set({ cenaAtual, origem, confianca }),
   sfxSugeridos: [],
   setSfxSugeridos: (sfxSugeridos) => set({ sfxSugeridos }),
+
+  moods: [],
+  setMoods: (moods) => set({ moods }),
+  moodAtual: null,
+  playlistUriAtual: null,
+  djAuto: true,
+  setDjAuto: (djAuto) => set({ djAuto }),
+  moodPausaAte: 0,
+  setMood: (moodAtual, playlistUri) =>
+    set((s) => ({
+      moodAtual,
+      playlistUriAtual:
+        playlistUri !== undefined ? playlistUri : s.playlistUriAtual,
+    })),
+  pausarDj: (ms) => set({ moodPausaAte: Date.now() + ms }),
+  crossfade: true,
+  setCrossfade: (crossfade) => {
+    setCrossfadeEnabled(crossfade);
+    set({ crossfade });
+  },
 
   linhas: [],
   parcial: "",

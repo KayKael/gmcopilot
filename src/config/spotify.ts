@@ -7,4 +7,5 @@
 export const SPOTIFY_CLIENT_ID = "23fcb25eaeaa48aea5885f834b939c8c";
 
 export const SPOTIFY_SCOPES =
-  "user-read-playback-state user-modify-playback-state user-read-currently-playing";
+  "user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-read-private playlist-read-collaborative";
+

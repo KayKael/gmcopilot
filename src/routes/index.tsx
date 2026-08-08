@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { SFX_KEYS, SFX_META, sceneIcon, type SceneConfig } from "@/lib/scenes";
+import { carregarMoods, moodByKey } from "@/lib/music-moods";
 import { sceneByKey, useSessionStore } from "@/store/session";
 import { useSpotify } from "@/hooks/useSpotify";
 import { useSfx } from "@/hooks/useSfx";
-import { useMudarCena } from "@/hooks/useCena";
+import { useMudarCena, useTocarMood } from "@/hooks/useCena";
 import { useClassificador } from "@/hooks/useClassificador";
 import { perguntarDocs, type RespostaRag } from "@/lib/rag.functions";
 import { pause, play, seguinte } from "@/lib/spotify";
@@ -69,6 +70,11 @@ function Dashboard() {
   const {
     scenes,
     setScenes,
+    moods,
+    setMoods,
+    moodAtual,
+    djAuto,
+    setDjAuto,
     cenaAtual,
     confianca,
     origem,
@@ -82,6 +88,7 @@ function Dashboard() {
   const spotifyStatus = useSessionStore((s) => s.spotifyStatus);
   const { refrescar } = useSpotify();
   const mudarCena = useMudarCena();
+  const tocarMood = useTocarMood();
   const { classificarAgora, aClassificar } = useClassificador();
   const { disparar, aTocar } = useSfx();
   const fimRef = useRef<HTMLDivElement | null>(null);
@@ -107,7 +114,14 @@ function Dashboard() {
     })();
   }, [setScenes]);
 
+  useEffect(() => {
+    void (async () => {
+      setMoods(await carregarMoods());
+    })();
+  }, [setMoods]);
+
   const cena = sceneByKey(scenes, cenaAtual);
+  const mood = moodByKey(moods, moodAtual);
   const cor = cena?.cor ?? "#71717a";
   const sugeridos = (sfxSugeridos.length ? sfxSugeridos : (cena?.sfx_sugeridos ?? [])).slice(0, 3);
 
@@ -248,7 +262,18 @@ function Dashboard() {
             </div>
           </Panel>
 
-          <Panel titulo="Spotify">
+          <Panel
+            titulo="Spotify"
+            extra={
+              <Button
+                size="sm"
+                variant={djAuto ? "default" : "outline"}
+                onClick={() => setDjAuto(!djAuto)}
+              >
+                DJ: {djAuto ? "ON" : "OFF"}
+              </Button>
+            }
+          >
             <div className="flex items-center gap-3">
               <div className="flex h-16 w-16 items-center justify-center rounded bg-secondary">
                 {track?.capa ? (
@@ -260,6 +285,10 @@ function Dashboard() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm">{track?.nome ?? "Nada a reproduzir"}</p>
                 <p className="truncate text-xs text-muted-foreground">{track?.artista ?? "—"}</p>
+                <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                  Mood: {mood?.nome ?? "—"}
+                  {djAuto ? " · auto (transcrição + cena)" : " · manual"}
+                </p>
               </div>
               <div className="flex gap-1">
                 <Button
@@ -288,6 +317,30 @@ function Dashboard() {
                 </Button>
               </div>
             </div>
+            {moods.length > 0 && (
+              <div className="mt-3">
+                <select
+                  className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+                  value={moodAtual ?? ""}
+                  onChange={(e) => {
+                    const key = e.target.value;
+                    if (!key) return;
+                    void tocarMood(key, { pausarDj: true }).then((ok) => {
+                      if (ok) toast.success(`Mood: ${moodByKey(moods, key)?.nome ?? key}`);
+                    });
+                  }}
+                >
+                  <option value="" disabled>
+                    Escolher mood…
+                  </option>
+                  {moods.map((m) => (
+                    <option key={m.key} value={m.key}>
+                      {m.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </Panel>
 
           <Panel titulo="Efeitos sonoros">

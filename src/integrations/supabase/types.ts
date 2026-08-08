@@ -38,6 +38,36 @@ export type Database = {
         }
         Relationships: []
       }
+      music_moods: {
+        Row: {
+          ativo: boolean
+          descricao: string
+          id: string
+          key: string
+          nome: string
+          ordem: number
+          spotify_playlist_uri: string
+        }
+        Insert: {
+          ativo?: boolean
+          descricao?: string
+          id?: string
+          key: string
+          nome: string
+          ordem?: number
+          spotify_playlist_uri?: string
+        }
+        Update: {
+          ativo?: boolean
+          descricao?: string
+          id?: string
+          key?: string
+          nome?: string
+          ordem?: number
+          spotify_playlist_uri?: string
+        }
+        Relationships: []
+      }
       scene_configs: {
         Row: {
           cor: string

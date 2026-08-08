@@ -15,8 +15,8 @@ export function SfxPanel() {
     <section className="rounded-lg border border-border bg-panel p-4">
       <h2 className="text-sm font-semibold">Efeitos sonoros</h2>
       <p className="mt-1 text-xs text-muted-foreground">
-        Volume dos efeitos e teste rápido de cada som. A música baixa automaticamente enquanto um
-        efeito toca.
+        Volume dos efeitos e teste rápido de cada som. Tocam por cima da música, sem alterar o volume
+        do Spotify.
       </p>
 
       <div className="mt-4">

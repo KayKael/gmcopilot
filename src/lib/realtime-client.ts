@@ -89,7 +89,6 @@ export async function iniciarTranscricao(op: OpcoesTranscricao): Promise<SessaoT
     console.error("Falha SDP realtime:", res.status, detalhe);
     stream.getTracks().forEach((t) => t.stop());
     pc.close();
-    op.onEstado("erro");
     throw new Error(`Falha na ligação de transcrição (${res.status})`);
   }
 

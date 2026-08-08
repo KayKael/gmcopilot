@@ -1,4 +1,3 @@
-import { toast } from "sonner";
 import { SPOTIFY_CLIENT_ID, SPOTIFY_SCOPES } from "@/config/spotify";
 
 const TOKEN_KEY = "gmcp.spotify.token";
@@ -219,36 +218,20 @@ export async function listarDispositivos(): Promise<SpotifyDevice[]> {
   return data.devices ?? [];
 }
 
-/** Executa um comando de player; se não houver dispositivo ativo (404), escolhe um e repete. */
-async function comando(path: string, init: RequestInit = {}): Promise<Response | null> {
-  let res = await spotifyFetch(comDispositivo(path), init);
-  if (res && res.status === 404) {
-    const dispositivos = await listarDispositivos();
-    const alvo = dispositivos.find((d) => d.is_active) ?? dispositivos[0];
-    if (!alvo) {
-      toast.error("Sem dispositivo Spotify ativo — abre o Spotify e toca algo primeiro");
-      return res;
-    }
-    await transferirPara(alvo.id);
-    res = await spotifyFetch(comDispositivo(path), init);
-  }
-  return res;
-}
-
 export async function play() {
-  await comando("/me/player/play", { method: "PUT" });
+  await spotifyFetch(comDispositivo("/me/player/play"), { method: "PUT" });
 }
 
 export async function pause() {
-  await comando("/me/player/pause", { method: "PUT" });
+  await spotifyFetch(comDispositivo("/me/player/pause"), { method: "PUT" });
 }
 
 export async function seguinte() {
-  await comando("/me/player/next", { method: "POST" });
+  await spotifyFetch(comDispositivo("/me/player/next"), { method: "POST" });
 }
 
 export async function definirVolume(percent: number) {
-  await comando(`/me/player/volume?volume_percent=${Math.round(percent)}`, {
+  await spotifyFetch(comDispositivo(`/me/player/volume?volume_percent=${Math.round(percent)}`), {
     method: "PUT",
   });
 }

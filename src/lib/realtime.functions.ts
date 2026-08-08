@@ -13,7 +13,6 @@ export const criarTokenTranscricao = createServerFn({ method: "POST" }).handler(
     audio: {
       input: {
         transcription: {
-          // gpt-live-transcribe não é suportado em modo transcrição (SDP devolve 500).
           model: "gpt-4o-transcribe",
           language: "pt",
           prompt:
@@ -24,7 +23,7 @@ export const criarTokenTranscricao = createServerFn({ method: "POST" }).handler(
           type: "server_vad",
           threshold: 0.5,
           prefix_padding_ms: 300,
-          silence_duration_ms: 600,
+          silence_duration_ms: 700,
         },
       },
     },
@@ -35,7 +34,6 @@ export const criarTokenTranscricao = createServerFn({ method: "POST" }).handler(
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({ session: sessao }),
   });
-
 
   if (!res.ok) {
     const detalhe = await res.text();

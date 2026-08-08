@@ -1,9 +1,10 @@
 import { Link } from "@tanstack/react-router";
-import { Keyboard, Radio, Settings, FileText, Play, Square } from "lucide-react";
+import { Keyboard, Radio, Settings, FileText, Play, Square, Mic, MicOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useSessionStore } from "@/store/session";
 import { useSpotify } from "@/hooks/useSpotify";
+import { useTranscricao } from "@/hooks/useTranscricao";
 
 const atalhos: [string, string][] = [
   ["1 – 6", "Mudar de cena (combate → épico)"],
@@ -16,6 +17,7 @@ export function TopBar() {
   const status = useSessionStore((s) => s.status);
   const spotifyStatus = useSessionStore((s) => s.spotifyStatus);
   const { ligar, desligar } = useSpotify();
+  const { iniciar, parar, alternarMic, micMudo } = useTranscricao();
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-panel px-4">
@@ -55,7 +57,26 @@ export function TopBar() {
           )}
         </Button>
 
-        <Button size="sm" variant={status === "parada" ? "default" : "destructive"} disabled>
+        {status !== "parada" && (
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label={micMudo ? "Reativar microfone" : "Silenciar microfone"}
+            onClick={alternarMic}
+          >
+            {micMudo ? (
+              <MicOff className="h-4 w-4 text-destructive" />
+            ) : (
+              <Mic className="h-4 w-4 text-ok" />
+            )}
+          </Button>
+        )}
+
+        <Button
+          size="sm"
+          variant={status === "parada" ? "default" : "destructive"}
+          onClick={() => void (status === "parada" ? iniciar() : parar())}
+        >
           {status === "parada" ? (
             <>
               <Play className="h-4 w-4" /> Iniciar Sessão

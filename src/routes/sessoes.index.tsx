@@ -88,8 +88,9 @@ function SessoesPage() {
                         void (async () => {
                           setOcupado(s.id);
                           try {
-                            await resumir({ data: { id: s.id } });
-                            toast.success("Resumo gerado");
+                            const r = await resumir({ data: { id: s.id } });
+                            if (r?.vazio) toast.info("Sessão sem transcrição");
+                            else toast.success("Resumo gerado");
                             await recarregar();
                           } catch {
                             toast.error("Não consegui gerar o resumo");

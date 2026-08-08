@@ -97,7 +97,8 @@ function SessaoPage() {
                   void (async () => {
                     setOcupado(true);
                     try {
-                      await resumir({ data: { id } });
+                      const r = await resumir({ data: { id } });
+                      if (r?.vazio) toast.info("Sessão sem transcrição");
                       await carregar();
                     } catch {
                       toast.error("Não consegui gerar o resumo");

@@ -174,6 +174,7 @@ function SettingsPage() {
           )}
 
           <SpotifyPanel />
+          <SfxPanel />
         </div>
       </main>
     </div>

@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { iniciarGravador, type GravadorAudio } from "@/lib/audio-recorder";
 import { transcreverBloco } from "@/lib/transcricao.functions";
+import { guardarMicrofone, obterMicrofoneGuardado, restricoesAudio } from "@/lib/mic-device";
 
 const DURACAO_TESTE_MS = 5000;
 
@@ -13,11 +21,14 @@ export function MicPanel() {
   const [aTestar, setATestar] = useState(false);
   const [resultado, setResultado] = useState<string | null>(null);
   const [dispositivo, setDispositivo] = useState<string | null>(null);
+  const [dispositivos, setDispositivos] = useState<MediaDeviceInfo[]>([]);
+  const [selecionado, setSelecionado] = useState<string>("auto");
 
   const streamRef = useRef<MediaStream | null>(null);
   const contextoRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
   const gravadorRef = useRef<GravadorAudio | null>(null);
+
 
   const pararEscuta = async () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -32,11 +43,39 @@ export function MicPanel() {
 
   useEffect(() => () => void pararEscuta(), []);
 
-  const comecarEscuta = async () => {
+  const listarDispositivos = async () => {
     try {
+      const lista = await navigator.mediaDevices.enumerateDevices();
+      setDispositivos(lista.filter((d) => d.kind === "audioinput"));
+    } catch (erro) {
+      console.error(erro);
+    }
+  };
+
+  useEffect(() => {
+    setSelecionado(obterMicrofoneGuardado() ?? "auto");
+    void listarDispositivos();
+    navigator.mediaDevices?.addEventListener?.("devicechange", listarDispositivos);
+    return () =>
+      navigator.mediaDevices?.removeEventListener?.("devicechange", listarDispositivos);
+  }, []);
+
+  const escolherDispositivo = async (valor: string) => {
+    setSelecionado(valor);
+    guardarMicrofone(valor === "auto" ? null : valor);
+    if (aEscutar) {
+      await pararEscuta();
+      await comecarEscuta(valor === "auto" ? null : valor);
+    }
+  };
+
+  const comecarEscuta = async (deviceId?: string | null) => {
+    try {
+      const id = deviceId ?? (selecionado === "auto" ? null : selecionado);
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+        audio: restricoesAudio(id),
       });
+      void listarDispositivos();
       streamRef.current = stream;
       setDispositivo(stream.getAudioTracks()[0]?.label ?? "Microfone");
       const contexto = new AudioContext();
@@ -113,6 +152,26 @@ export function MicPanel() {
           {aEscutar ? "Parar" : "Testar áudio"}
         </Button>
       </div>
+
+      <div className="mt-4">
+        <Select value={selecionado} onValueChange={(v) => void escolherDispositivo(v)}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue placeholder="Microfone predefinido" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="auto">Predefinido do sistema</SelectItem>
+            {dispositivos.map((d, i) => (
+              <SelectItem key={d.deviceId} value={d.deviceId}>
+                {d.label || `Microfone ${i + 1}`}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Os nomes só aparecem depois de dares permissão de microfone.
+        </p>
+      </div>
+
 
       <div className="mt-4 space-y-2">
         <div className="h-3 w-full overflow-hidden rounded bg-muted">

@@ -1,3 +1,5 @@
+import { restricoesAudio } from "@/lib/mic-device";
+
 export type GravadorAudio = {
   parar: () => Promise<void>;
   setMudo: (mudo: boolean) => void;
@@ -5,6 +7,7 @@ export type GravadorAudio = {
 
 type OpcoesGravador = {
   intervaloMs?: number;
+  deviceId?: string | null;
   onBloco: (wavBase64: string) => void;
   onErro: (erro: unknown) => void;
 };
@@ -47,11 +50,12 @@ function paraBase64(bytes: Uint8Array) {
 
 export async function iniciarGravador({
   intervaloMs = 6000,
+  deviceId,
   onBloco,
   onErro,
 }: OpcoesGravador): Promise<GravadorAudio> {
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+    audio: restricoesAudio(deviceId),
   });
   const contexto = new AudioContext();
   await contexto.resume();

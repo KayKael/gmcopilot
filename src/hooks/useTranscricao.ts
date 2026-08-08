@@ -1,0 +1,113 @@
+import { useCallback, useEffect, useRef } from "react";
+import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
+import { supabase } from "@/integrations/supabase/client";
+import { iniciarTranscricao, type SessaoTranscricao } from "@/lib/realtime-client";
+import { criarTokenTranscricao } from "@/lib/realtime.functions";
+import { useSessionStore } from "@/store/session";
+
+export function useTranscricao() {
+  const pedirToken = useServerFn(criarTokenTranscricao);
+  const sessaoRef = useRef<SessaoTranscricao | null>(null);
+  const {
+    status,
+    setStatus,
+    sessionId,
+    setSessionId,
+    addLinha,
+    setParcial,
+    limparTranscricao,
+    micMudo,
+    setMicMudo,
+  } = useSessionStore();
+
+  const guardarLinha = useCallback(
+    async (texto: string, sid: string | null) => {
+      const linha = {
+        id: crypto.randomUUID(),
+        ts: new Date().toISOString(),
+        texto,
+      };
+      addLinha(linha);
+      const { error } = await supabase
+        .from("transcript_lines")
+        .insert({ id: linha.id, session_id: sid, texto, ts: linha.ts });
+      if (error) console.error("Não consegui guardar a linha:", error.message);
+    },
+    [addLinha],
+  );
+
+  const parar = useCallback(async () => {
+    sessaoRef.current?.parar();
+    sessaoRef.current = null;
+    setParcial("");
+    setStatus("parada");
+    if (sessionId) {
+      await supabase
+        .from("sessions")
+        .update({ ended_at: new Date().toISOString() })
+        .eq("id", sessionId);
+    }
+  }, [sessionId, setParcial, setStatus]);
+
+  const iniciar = useCallback(async () => {
+    if (sessaoRef.current) return;
+    setStatus("reconectando");
+    limparTranscricao();
+    try {
+      const { data: sess, error } = await supabase
+        .from("sessions")
+        .insert({ nome: `Sessão de ${new Date().toLocaleDateString("pt-PT")}` })
+        .select("id")
+        .single();
+      if (error) throw new Error(error.message);
+      const sid = sess.id as string;
+      setSessionId(sid);
+
+      const { token } = await pedirToken({ data: undefined });
+      sessaoRef.current = await iniciarTranscricao({
+        token,
+        onParcial: setParcial,
+        onFinal: (texto) => void guardarLinha(texto, sid),
+        onEstado: (estado) => {
+          if (estado === "ligado") setStatus("ativa");
+          else if (estado === "erro") {
+            setStatus("reconectando");
+            toast.error("Ligação de transcrição perdida");
+          }
+        },
+      });
+      setMicMudo(false);
+    } catch (e) {
+      console.error(e);
+      setStatus("parada");
+      toast.error(
+        e instanceof DOMException
+          ? "Sem acesso ao microfone"
+          : "Não consegui iniciar a transcrição",
+      );
+    }
+  }, [guardarLinha, limparTranscricao, pedirToken, setMicMudo, setParcial, setSessionId, setStatus]);
+
+  const alternarMic = useCallback(() => {
+    if (!sessaoRef.current) return;
+    const novo = !micMudo;
+    sessaoRef.current.setMudo(novo);
+    setMicMudo(novo);
+  }, [micMudo, setMicMudo]);
+
+  // Atalho M para silenciar/reativar o microfone
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.key.toLowerCase() === "m") alternarMic();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [alternarMic]);
+
+  useEffect(() => () => sessaoRef.current?.parar(), []);
+
+  return { status, iniciar, parar, alternarMic, micMudo };
+}

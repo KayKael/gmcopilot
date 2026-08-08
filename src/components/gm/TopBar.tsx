@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Keyboard, Radio, Settings, FileText, Play, Square, Mic, MicOff } from "lucide-react";
+import { Keyboard, Radio, Settings, FileText, Play, Square, Mic, MicOff, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useSessionStore } from "@/store/session";

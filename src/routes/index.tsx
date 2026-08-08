@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { SFX_KEYS, SFX_META, sceneIcon, type SceneConfig } from "@/lib/scenes";
 import { sceneByKey, useSessionStore } from "@/store/session";
+import { useSpotify } from "@/hooks/useSpotify";
+import { pause, play, seguinte, tocarPlaylist } from "@/lib/spotify";
 import { Music, SkipForward, Play, Pause, Wand2 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -73,6 +75,8 @@ function Dashboard() {
     sfxSugeridos,
     setSfxSugeridos,
   } = useSessionStore();
+  const spotifyStatus = useSessionStore((s) => s.spotifyStatus);
+  const { refrescar } = useSpotify();
 
   useEffect(() => {
     void (async () => {
@@ -92,9 +96,49 @@ function Dashboard() {
   function mudarCena(key: SceneConfig["key"]) {
     setCena(key, "manual", null);
     setSfxSugeridos([]);
+    const alvo = scenes.find((s) => s.key === key);
+    if (spotifyStatus === "ligado" && alvo?.spotify_playlist_uri) {
+      void (async () => {
+        const ok = await tocarPlaylist(alvo.spotify_playlist_uri!);
+        if (!ok) toast.error("Não consegui trocar a playlist (verifica o dispositivo ativo)");
+        await refrescar();
+      })();
+    }
   }
 
+  async function controlo(acao: "play" | "pause" | "next") {
+    if (spotifyStatus !== "ligado") {
+      toast.error("Liga o Spotify primeiro");
+      return;
+    }
+    if (acao === "play") await play();
+    else if (acao === "pause") await pause();
+    else await seguinte();
+    setTimeout(() => void refrescar(), 400);
+  }
+
+  // Atalhos: 1–6 muda de cena, espaço faz play/pause
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        void controlo(track?.aTocar ? "pause" : "play");
+        return;
+      }
+      const n = Number(e.key);
+      if (n >= 1 && n <= 9) {
+        const alvo = scenes.find((s) => s.ordem === n);
+        if (alvo) mudarCena(alvo.key);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   const Icon = sceneIcon(cena?.icone ?? "");
+
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
@@ -179,13 +223,28 @@ function Dashboard() {
                 <p className="truncate text-xs text-muted-foreground">{track?.artista ?? "—"}</p>
               </div>
               <div className="flex gap-1">
-                <Button size="icon" variant="outline" disabled aria-label="Play">
+                <Button
+                  size="icon"
+                  variant="outline"
+                  aria-label="Play"
+                  onClick={() => void controlo("play")}
+                >
                   <Play className="h-4 w-4" />
                 </Button>
-                <Button size="icon" variant="outline" disabled aria-label="Pause">
+                <Button
+                  size="icon"
+                  variant="outline"
+                  aria-label="Pause"
+                  onClick={() => void controlo("pause")}
+                >
                   <Pause className="h-4 w-4" />
                 </Button>
-                <Button size="icon" variant="outline" disabled aria-label="Seguinte">
+                <Button
+                  size="icon"
+                  variant="outline"
+                  aria-label="Seguinte"
+                  onClick={() => void controlo("next")}
+                >
                   <SkipForward className="h-4 w-4" />
                 </Button>
               </div>

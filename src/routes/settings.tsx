@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { TopBar } from "@/components/gm/TopBar";
+import { SpotifyPanel } from "@/components/gm/SpotifyPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -172,12 +173,7 @@ function SettingsPage() {
             </div>
           )}
 
-          <section className="rounded-lg border border-border bg-panel p-4">
-            <h2 className="text-sm font-semibold">Spotify</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Ligação e dispositivos chegam na Fase 2.
-            </p>
-          </section>
+          <SpotifyPanel />
         </div>
       </main>
     </div>

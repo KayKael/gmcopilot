@@ -24,7 +24,8 @@ export const indexarDocumento = createServerFn({ method: "POST" })
     await supabaseAdmin.from("doc_chunks").delete().eq("doc_name", data.nome);
 
     for (let i = 0; i < pedacos.length; i += 32) {
-      const lote = pedacos.slice(i, i + 64);
+      const lote = pedacos.slice(i, i + 32);
+      if (i > 0) await new Promise((r) => setTimeout(r, 400));
       const vetores = await embed(lote.map((p) => p.content));
       const linhas = lote.map((p, j) => ({
         doc_name: data.nome,

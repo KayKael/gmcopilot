@@ -57,7 +57,7 @@ export const obterSessao = createServerFn({ method: "POST" })
 /** Gera (ou regenera) o resumo de uma sessão e guarda-o. */
 export const resumirSessao = createServerFn({ method: "POST" })
   .inputValidator((input: { id: string }) => input)
-  .handler(async ({ data }): Promise<{ resumo: string }> => {
+  .handler(async ({ data }): Promise<{ resumo: string; vazio?: boolean }> => {
     const { chatTexto, MODELO_FORTE } = await import("./ai.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -67,7 +67,8 @@ export const resumirSessao = createServerFn({ method: "POST" })
       .eq("session_id", data.id)
       .order("ts");
     if (error) throw new Error(error.message);
-    if (!linhas?.length) throw new Error("Sessão sem transcrição");
+    // Sessão sem falas captadas: não é erro, apenas não há nada para resumir.
+    if (!linhas?.length) return { resumo: "", vazio: true };
 
     const sistema =
       "És o co-piloto de um mestre de RPG. Escreves em português europeu, de forma objetiva, em markdown.";

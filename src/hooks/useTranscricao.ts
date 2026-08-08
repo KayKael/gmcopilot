@@ -131,8 +131,9 @@ export function useTranscricao() {
         .update({ ended_at: new Date().toISOString() })
         .eq("id", sid);
       try {
-        await gerarResumo({ data: { id: sid } });
-        toast.success("Resumo da sessão gerado");
+        const r = await gerarResumo({ data: { id: sid } });
+        if (r?.vazio) toast.info("Sessão terminada sem transcrição — sem resumo");
+        else toast.success("Resumo da sessão gerado");
       } catch (e) {
         console.error(e);
         toast.error(

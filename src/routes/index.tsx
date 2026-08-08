@@ -10,7 +10,6 @@ import { SFX_KEYS, SFX_META, sceneIcon, type SceneConfig } from "@/lib/scenes";
 import { sceneByKey, useSessionStore } from "@/store/session";
 import { useSpotify } from "@/hooks/useSpotify";
 import { useSfx } from "@/hooks/useSfx";
-import { useCena as _unused } from "@/hooks/useCena";
 import { useMudarCena } from "@/hooks/useCena";
 import { useClassificador } from "@/hooks/useClassificador";
 import { perguntarDocs, type RespostaRag } from "@/lib/rag.functions";

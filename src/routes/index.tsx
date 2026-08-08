@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { SFX_KEYS, SFX_META, sceneIcon, type SceneConfig } from "@/lib/scenes";
 import { sceneByKey, useSessionStore } from "@/store/session";
+import { useSpotify } from "@/hooks/useSpotify";
+import { pause, play, seguinte, tocarPlaylist } from "@/lib/spotify";
 import { Music, SkipForward, Play, Pause, Wand2 } from "lucide-react";
 
 export const Route = createFileRoute("/")({

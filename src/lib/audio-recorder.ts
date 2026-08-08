@@ -55,6 +55,7 @@ export async function iniciarGravador({
   deviceId,
   onBloco,
   onErro,
+  onSemAudio,
 }: OpcoesGravador): Promise<GravadorAudio> {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: restricoesAudio(deviceId),
@@ -68,8 +69,11 @@ export async function iniciarGravador({
   const fila: Float32Array[] = [];
   let parado = false;
   let mudo = false;
+  let ultimoAudio = Date.now();
+  let semAudioAvisado = false;
 
   processador.onaudioprocess = (evento) => {
+    ultimoAudio = Date.now();
     if (parado || mudo) return;
     fila.push(new Float32Array(evento.inputBuffer.getChannelData(0)));
   };
@@ -78,7 +82,23 @@ export async function iniciarGravador({
   ganho.connect(contexto.destination);
 
   const emitir = () => {
-    if (parado || fila.length === 0) return;
+    if (parado) return;
+    // o contexto pode ser suspenso pelo browser (separador em segundo plano)
+    if (contexto.state === "suspended") void contexto.resume().catch(() => {});
+    const faixa = stream.getAudioTracks()[0];
+    const morto =
+      !faixa ||
+      faixa.readyState === "ended" ||
+      Date.now() - ultimoAudio > Math.max(4000, intervaloMs * 2);
+    if (morto) {
+      if (!semAudioAvisado) {
+        semAudioAvisado = true;
+        onSemAudio?.();
+      }
+      return;
+    }
+    semAudioAvisado = false;
+    if (fila.length === 0) return;
     const total = fila.reduce((soma, parte) => soma + parte.length, 0);
     const todas = new Float32Array(total);
     let offset = 0;

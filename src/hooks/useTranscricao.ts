@@ -11,17 +11,15 @@ export function useTranscricao() {
   const pedirToken = useServerFn(criarTokenTranscricao);
   const gerarResumo = useServerFn(resumirSessao);
   const sessaoRef = useRef<SessaoTranscricao | null>(null);
-  const {
-    status,
-    setStatus,
-    sessionId,
-    setSessionId,
-    addLinha,
-    setParcial,
-    limparTranscricao,
-    micMudo,
-    setMicMudo,
-  } = useSessionStore();
+  const status = useSessionStore((s) => s.status);
+  const setStatus = useSessionStore((s) => s.setStatus);
+  const sessionId = useSessionStore((s) => s.sessionId);
+  const setSessionId = useSessionStore((s) => s.setSessionId);
+  const addLinha = useSessionStore((s) => s.addLinha);
+  const setParcial = useSessionStore((s) => s.setParcial);
+  const limparTranscricao = useSessionStore((s) => s.limparTranscricao);
+  const micMudo = useSessionStore((s) => s.micMudo);
+  const setMicMudo = useSessionStore((s) => s.setMicMudo);
 
   const guardarLinha = useCallback(
     async (texto: string, sid: string | null) => {

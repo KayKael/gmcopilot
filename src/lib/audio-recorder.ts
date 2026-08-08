@@ -10,6 +10,8 @@ type OpcoesGravador = {
   deviceId?: string | null;
   onBloco: (wavBase64: string) => void;
   onErro: (erro: unknown) => void;
+  /** Chamado quando o áudio deixa de chegar (contexto suspenso, mic perdido…). */
+  onSemAudio?: () => void;
 };
 
 function escreverTexto(view: DataView, offset: number, texto: string) {

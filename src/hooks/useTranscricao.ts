@@ -2,21 +2,17 @@ import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
-import { iniciarTranscricao, type SessaoTranscricao } from "@/lib/realtime-client";
-import { criarTokenTranscricao } from "@/lib/realtime.functions";
+import { iniciarGravador, type Gravador } from "@/lib/audio-recorder";
+import { transcreverBloco } from "@/lib/transcricao.functions";
 import { resumirSessao } from "@/lib/sessao.functions";
 import { useSessionStore } from "@/store/session";
 
-const MAX_RETRIES = 3;
-
 export function useTranscricao() {
-  const pedirToken = useServerFn(criarTokenTranscricao);
+  const transcrever = useServerFn(transcreverBloco);
   const gerarResumo = useServerFn(resumirSessao);
-  const sessaoRef = useRef<SessaoTranscricao | null>(null);
-  const retriesRef = useRef(0);
-  const aPararRef = useRef(false);
+  const gravadorRef = useRef<Gravador | null>(null);
   const sidRef = useRef<string | null>(null);
-  const aReconectarRef = useRef(false);
+  const falhasRef = useRef(0);
 
   const status = useSessionStore((s) => s.status);
   const setStatus = useSessionStore((s) => s.setStatus);
@@ -30,11 +26,7 @@ export function useTranscricao() {
 
   const guardarLinha = useCallback(
     async (texto: string, sid: string | null) => {
-      const linha = {
-        id: crypto.randomUUID(),
-        ts: new Date().toISOString(),
-        texto,
-      };
+      const linha = { id: crypto.randomUUID(), ts: new Date().toISOString(), texto };
       addLinha(linha);
       const { error } = await supabase
         .from("transcript_lines")
@@ -44,84 +36,13 @@ export function useTranscricao() {
     [addLinha],
   );
 
-  const ligarWebRTC = useCallback(
-    async (sid: string) => {
-      const { token } = await pedirToken({ data: undefined });
-      sessaoRef.current = await iniciarTranscricao({
-        token,
-        onParcial: setParcial,
-        onFinal: (texto) => void guardarLinha(texto, sid),
-        onEstado: (estado) => {
-          if (estado === "ligado") {
-            retriesRef.current = 0;
-            aReconectarRef.current = false;
-            setStatus("ativa");
-          } else if (estado === "erro") {
-            if (aPararRef.current || aReconectarRef.current) return;
-            void reconectar();
-          }
-        },
-      });
-      setMicMudo(false);
-    },
-    // reconectar via closure estável abaixo
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [guardarLinha, pedirToken, setMicMudo, setParcial, setStatus],
-  );
-
-  const ligarRef = useRef(ligarWebRTC);
-  ligarRef.current = ligarWebRTC;
-
-  async function reconectar() {
-    if (aPararRef.current || aReconectarRef.current) return;
-    const sid = sidRef.current;
-    if (!sid) {
-      setStatus("parada");
-      return;
-    }
-
-    aReconectarRef.current = true;
-    try {
-      sessaoRef.current?.parar();
-    } catch {
-      /* ignorar */
-    }
-    sessaoRef.current = null;
-
-    if (retriesRef.current >= MAX_RETRIES) {
-      setStatus("parada");
-      aReconectarRef.current = false;
-      toast.error("Ligação de transcrição perdida (sem mais tentativas)");
-      return;
-    }
-
-    retriesRef.current += 1;
-    setStatus("reconectando");
-    toast.message(`A reconectar transcrição (${retriesRef.current}/${MAX_RETRIES})…`);
-
-    try {
-      await ligarRef.current(sid);
-    } catch (e) {
-      console.error(e);
-      aReconectarRef.current = false;
-      if (retriesRef.current >= MAX_RETRIES) {
-        setStatus("parada");
-        toast.error("Não consegui reestabelecer a transcrição");
-      } else {
-        window.setTimeout(() => void reconectar(), 1500 * retriesRef.current);
-      }
-    }
-  }
-
   const parar = useCallback(async () => {
-    aPararRef.current = true;
-    aReconectarRef.current = false;
     try {
-      sessaoRef.current?.parar();
+      gravadorRef.current?.parar();
     } catch {
       /* ignorar */
     }
-    sessaoRef.current = null;
+    gravadorRef.current = null;
     setParcial("");
     setStatus("parada");
     const sid = sidRef.current ?? sessionId;
@@ -136,18 +57,14 @@ export function useTranscricao() {
         else toast.success("Resumo da sessão gerado");
       } catch (e) {
         console.error(e);
-        toast.error(
-          e instanceof Error ? e.message : "Não consegui gerar o resumo da sessão",
-        );
+        toast.error(e instanceof Error ? e.message : "Não consegui gerar o resumo da sessão");
       }
     }
   }, [gerarResumo, sessionId, setParcial, setStatus]);
 
   const iniciar = useCallback(async () => {
-    if (sessaoRef.current) return;
-    aPararRef.current = false;
-    aReconectarRef.current = false;
-    retriesRef.current = 0;
+    if (gravadorRef.current) return;
+    falhasRef.current = 0;
     setStatus("reconectando");
     limparTranscricao();
     try {
@@ -160,7 +77,30 @@ export function useTranscricao() {
       const sid = sess.id as string;
       sidRef.current = sid;
       setSessionId(sid);
-      await ligarRef.current(sid);
+
+      gravadorRef.current = await iniciarGravador({
+        intervaloMs: 6000,
+        onBloco: (wavBase64) => {
+          setParcial("a transcrever…");
+          void (async () => {
+            try {
+              const { texto } = await transcrever({ data: { wavBase64 } });
+              falhasRef.current = 0;
+              setParcial("");
+              const limpo = texto.trim();
+              if (limpo) await guardarLinha(limpo, sid);
+            } catch (e) {
+              console.error(e);
+              setParcial("");
+              falhasRef.current += 1;
+              if (falhasRef.current === 3) toast.error("Falhas na transcrição — a continuar a tentar");
+            }
+          })();
+        },
+        onErro: (e) => console.error(e),
+      });
+      setMicMudo(false);
+      setStatus("ativa");
     } catch (e) {
       console.error(e);
       setStatus("parada");
@@ -172,12 +112,12 @@ export function useTranscricao() {
             : "Não consegui iniciar a transcrição",
       );
     }
-  }, [limparTranscricao, setSessionId, setStatus]);
+  }, [guardarLinha, limparTranscricao, setMicMudo, setParcial, setSessionId, setStatus, transcrever]);
 
   const alternarMic = useCallback(() => {
-    if (!sessaoRef.current) return;
+    if (!gravadorRef.current) return;
     const novo = !micMudo;
-    sessaoRef.current.setMudo(novo);
+    gravadorRef.current.setMudo(novo);
     setMicMudo(novo);
   }, [micMudo, setMicMudo]);
 
@@ -193,9 +133,8 @@ export function useTranscricao() {
 
   useEffect(
     () => () => {
-      aPararRef.current = true;
       try {
-        sessaoRef.current?.parar();
+        gravadorRef.current?.parar();
       } catch {
         /* ignorar */
       }

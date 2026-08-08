@@ -81,6 +81,8 @@ export const useSessionStore = create<SessionState>((set) => ({
   addLinha: (l) => set((s) => ({ linhas: [...s.linhas, l] })),
   setParcial: (parcial) => set({ parcial }),
   limparTranscricao: () => set({ linhas: [], parcial: "" }),
+  micMudo: false,
+  setMicMudo: (micMudo) => set({ micMudo }),
 
   spotifyStatus: "desligado",
   setSpotifyStatus: (spotifyStatus) => set({ spotifyStatus }),

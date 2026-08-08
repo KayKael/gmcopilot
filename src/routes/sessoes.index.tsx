@@ -12,7 +12,7 @@ import {
 } from "@/lib/sessao.functions";
 import { Loader2, Trash2 } from "lucide-react";
 
-export const Route = createFileRoute("/sessoes")({
+export const Route = createFileRoute("/sessoes/")({
   head: () => ({
     meta: [
       { title: "Histórico de Sessões — GM Co-Pilot" },

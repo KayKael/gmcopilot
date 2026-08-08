@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SessoesIndexRouteImport } from './routes/sessoes.index'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,18 +35,25 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SessoesIndexRoute = SessoesIndexRouteImport.update({
+  id: '/sessoes/',
+  path: '/sessoes/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/callback': typeof CallbackRoute
   '/docs': typeof DocsRoute
   '/settings': typeof SettingsRoute
+  '/sessoes/': typeof SessoesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/callback': typeof CallbackRoute
   '/docs': typeof DocsRoute
   '/settings': typeof SettingsRoute
+  '/sessoes': typeof SessoesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +61,14 @@ export interface FileRoutesById {
   '/callback': typeof CallbackRoute
   '/docs': typeof DocsRoute
   '/settings': typeof SettingsRoute
+  '/sessoes/': typeof SessoesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/callback' | '/docs' | '/settings'
+  fullPaths: '/' | '/callback' | '/docs' | '/settings' | '/sessoes/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/callback' | '/docs' | '/settings'
-  id: '__root__' | '/' | '/callback' | '/docs' | '/settings'
+  to: '/' | '/callback' | '/docs' | '/settings' | '/sessoes'
+  id: '__root__' | '/' | '/callback' | '/docs' | '/settings' | '/sessoes/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,6 +76,7 @@ export interface RootRouteChildren {
   CallbackRoute: typeof CallbackRoute
   DocsRoute: typeof DocsRoute
   SettingsRoute: typeof SettingsRoute
+  SessoesIndexRoute: typeof SessoesIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +109,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sessoes/': {
+      id: '/sessoes/'
+      path: '/sessoes'
+      fullPath: '/sessoes/'
+      preLoaderRoute: typeof SessoesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -107,6 +124,7 @@ const rootRouteChildren: RootRouteChildren = {
   CallbackRoute: CallbackRoute,
   DocsRoute: DocsRoute,
   SettingsRoute: SettingsRoute,
+  SessoesIndexRoute: SessoesIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

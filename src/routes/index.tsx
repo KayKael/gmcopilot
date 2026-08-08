@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { TopBar } from "@/components/gm/TopBar";
 import { Button } from "@/components/ui/button";
@@ -77,6 +77,11 @@ function Dashboard() {
   } = useSessionStore();
   const spotifyStatus = useSessionStore((s) => s.spotifyStatus);
   const { refrescar } = useSpotify();
+  const fimRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    fimRef.current?.scrollIntoView({ block: "end" });
+  }, [linhas.length, parcial]);
 
   useEffect(() => {
     void (async () => {
@@ -161,6 +166,7 @@ function Dashboard() {
                 </p>
               ))}
               {parcial && <p className="italic text-muted-foreground">{parcial}</p>}
+              <div ref={fimRef} />
             </div>
           )}
         </Panel>

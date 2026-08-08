@@ -14,6 +14,7 @@ export function useTranscricao() {
   const filaRef = useRef<Promise<void>>(Promise.resolve());
   const falhasRef = useRef(0);
   const aPararRef = useRef(false);
+  const reiniciandoRef = useRef(false);
   const sidRef = useRef<string | null>(null);
 
   const status = useSessionStore((s) => s.status);

@@ -2,21 +2,19 @@ import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
-import { iniciarTranscricao, type SessaoTranscricao } from "@/lib/realtime-client";
-import { criarTokenTranscricao } from "@/lib/realtime.functions";
+import { iniciarGravador, type GravadorAudio } from "@/lib/audio-recorder";
+import { transcreverBloco } from "@/lib/transcricao.functions";
 import { resumirSessao } from "@/lib/sessao.functions";
 import { useSessionStore } from "@/store/session";
 
-const MAX_RETRIES = 3;
-
 export function useTranscricao() {
-  const pedirToken = useServerFn(criarTokenTranscricao);
+  const transcrever = useServerFn(transcreverBloco);
   const gerarResumo = useServerFn(resumirSessao);
-  const sessaoRef = useRef<SessaoTranscricao | null>(null);
-  const retriesRef = useRef(0);
+  const gravadorRef = useRef<GravadorAudio | null>(null);
+  const filaRef = useRef<Promise<void>>(Promise.resolve());
+  const falhasRef = useRef(0);
   const aPararRef = useRef(false);
   const sidRef = useRef<string | null>(null);
-  const aReconectarRef = useRef(false);
 
   const status = useSessionStore((s) => s.status);
   const setStatus = useSessionStore((s) => s.setStatus);
@@ -44,84 +42,48 @@ export function useTranscricao() {
     [addLinha],
   );
 
-  const ligarWebRTC = useCallback(
+  const ligarGravador = useCallback(
     async (sid: string) => {
-      const { token } = await pedirToken({ data: undefined });
-      sessaoRef.current = await iniciarTranscricao({
-        token,
-        onParcial: setParcial,
-        onFinal: (texto) => void guardarLinha(texto, sid),
-        onEstado: (estado) => {
-          if (estado === "ligado") {
-            retriesRef.current = 0;
-            aReconectarRef.current = false;
-            setStatus("ativa");
-          } else if (estado === "erro") {
-            if (aPararRef.current || aReconectarRef.current) return;
-            void reconectar();
-          }
+      gravadorRef.current = await iniciarGravador({
+        intervaloMs: 6000,
+        onBloco: (wavBase64) => {
+          setParcial("a transcrever…");
+          filaRef.current = filaRef.current.then(async () => {
+            try {
+              const { texto } = await transcrever({ data: { wavBase64 } });
+              falhasRef.current = 0;
+              const limpo = texto.trim();
+              if (limpo) await guardarLinha(limpo, sid);
+            } catch (erro) {
+              console.error(erro);
+              falhasRef.current += 1;
+              if (falhasRef.current === 1) toast.error("Falha ao transcrever áudio — vou continuar a tentar");
+            } finally {
+              setParcial("");
+            }
+          });
         },
+        onErro: (erro) => console.error("Erro ao preparar áudio:", erro),
       });
+      falhasRef.current = 0;
       setMicMudo(false);
+      setStatus("ativa");
     },
-    // reconectar via closure estável abaixo
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [guardarLinha, pedirToken, setMicMudo, setParcial, setStatus],
+    [guardarLinha, setMicMudo, setParcial, setStatus, transcrever],
   );
 
-  const ligarRef = useRef(ligarWebRTC);
-  ligarRef.current = ligarWebRTC;
-
-  async function reconectar() {
-    if (aPararRef.current || aReconectarRef.current) return;
-    const sid = sidRef.current;
-    if (!sid) {
-      setStatus("parada");
-      return;
-    }
-
-    aReconectarRef.current = true;
-    try {
-      sessaoRef.current?.parar();
-    } catch {
-      /* ignorar */
-    }
-    sessaoRef.current = null;
-
-    if (retriesRef.current >= MAX_RETRIES) {
-      setStatus("parada");
-      aReconectarRef.current = false;
-      toast.error("Ligação de transcrição perdida (sem mais tentativas)");
-      return;
-    }
-
-    retriesRef.current += 1;
-    setStatus("reconectando");
-    toast.message(`A reconectar transcrição (${retriesRef.current}/${MAX_RETRIES})…`);
-
-    try {
-      await ligarRef.current(sid);
-    } catch (e) {
-      console.error(e);
-      aReconectarRef.current = false;
-      if (retriesRef.current >= MAX_RETRIES) {
-        setStatus("parada");
-        toast.error("Não consegui reestabelecer a transcrição");
-      } else {
-        window.setTimeout(() => void reconectar(), 1500 * retriesRef.current);
-      }
-    }
-  }
+  const ligarRef = useRef(ligarGravador);
+  ligarRef.current = ligarGravador;
 
   const parar = useCallback(async () => {
     aPararRef.current = true;
-    aReconectarRef.current = false;
     try {
-      sessaoRef.current?.parar();
+      await gravadorRef.current?.parar();
+      await filaRef.current;
     } catch {
       /* ignorar */
     }
-    sessaoRef.current = null;
+    gravadorRef.current = null;
     setParcial("");
     setStatus("parada");
     const sid = sidRef.current ?? sessionId;
@@ -144,10 +106,9 @@ export function useTranscricao() {
   }, [gerarResumo, sessionId, setParcial, setStatus]);
 
   const iniciar = useCallback(async () => {
-    if (sessaoRef.current) return;
+    if (gravadorRef.current) return;
     aPararRef.current = false;
-    aReconectarRef.current = false;
-    retriesRef.current = 0;
+    filaRef.current = Promise.resolve();
     setStatus("reconectando");
     limparTranscricao();
     try {
@@ -175,9 +136,9 @@ export function useTranscricao() {
   }, [limparTranscricao, setSessionId, setStatus]);
 
   const alternarMic = useCallback(() => {
-    if (!sessaoRef.current) return;
+    if (!gravadorRef.current) return;
     const novo = !micMudo;
-    sessaoRef.current.setMudo(novo);
+    gravadorRef.current.setMudo(novo);
     setMicMudo(novo);
   }, [micMudo, setMicMudo]);
 
@@ -194,11 +155,7 @@ export function useTranscricao() {
   useEffect(
     () => () => {
       aPararRef.current = true;
-      try {
-        sessaoRef.current?.parar();
-      } catch {
-        /* ignorar */
-      }
+      void gravadorRef.current?.parar();
     },
     [],
   );

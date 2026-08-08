@@ -1,6 +1,11 @@
 import { create } from "zustand";
 import type { SceneConfig, SceneKey } from "@/lib/scenes";
 import type { MusicMood } from "@/lib/music-moods";
+import {
+  definirPackAtivoKey,
+  obterPackAtivoKey,
+  type SfxPack,
+} from "@/lib/sfx-packs";
 import { setCrossfadeEnabled } from "@/lib/spotify";
 
 export interface TranscriptLine {
@@ -41,6 +46,12 @@ interface SessionState {
   ) => void;
   sfxSugeridos: string[];
   setSfxSugeridos: (s: string[]) => void;
+
+  // packs SFX
+  sfxPacks: SfxPack[];
+  setSfxPacks: (p: SfxPack[]) => void;
+  sfxPackAtivo: string | null;
+  setSfxPackAtivo: (key: string | null) => void;
 
   // mood DJ
   moods: MusicMood[];
@@ -90,6 +101,15 @@ export const useSessionStore = create<SessionState>((set) => ({
     set({ cenaAtual, origem, confianca }),
   sfxSugeridos: [],
   setSfxSugeridos: (sfxSugeridos) => set({ sfxSugeridos }),
+
+  sfxPacks: [],
+  setSfxPacks: (sfxPacks) => set({ sfxPacks }),
+  sfxPackAtivo:
+    typeof window !== "undefined" ? obterPackAtivoKey() : "ordem_paranormal",
+  setSfxPackAtivo: (sfxPackAtivo) => {
+    if (sfxPackAtivo) definirPackAtivoKey(sfxPackAtivo);
+    set({ sfxPackAtivo });
+  },
 
   moods: [],
   setMoods: (moods) => set({ moods }),

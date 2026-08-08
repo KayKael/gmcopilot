@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -8,13 +9,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { iniciarGravador, type GravadorAudio } from "@/lib/audio-recorder";
-import { transcreverBloco } from "@/lib/transcricao.functions";
+import { iniciarTranscricao, type SessaoTranscricao } from "@/lib/realtime-client";
+import { criarTokenTranscricao } from "@/lib/realtime.functions";
 import { guardarMicrofone, obterMicrofoneGuardado, restricoesAudio } from "@/lib/mic-device";
 
-const DURACAO_TESTE_MS = 5000;
+const DURACAO_TESTE_MS = 8000;
 
 export function MicPanel() {
+  const pedirToken = useServerFn(criarTokenTranscricao);
   const [nivel, setNivel] = useState(0);
   const [pico, setPico] = useState(0);
   const [aEscutar, setAEscutar] = useState(false);
@@ -27,8 +29,7 @@ export function MicPanel() {
   const streamRef = useRef<MediaStream | null>(null);
   const contextoRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
-  const gravadorRef = useRef<GravadorAudio | null>(null);
-
+  const sessaoTesteRef = useRef<SessaoTranscricao | null>(null);
 
   const pararEscuta = async () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -41,7 +42,17 @@ export function MicPanel() {
     setNivel(0);
   };
 
-  useEffect(() => () => void pararEscuta(), []);
+  useEffect(
+    () => () => {
+      void pararEscuta();
+      try {
+        sessaoTesteRef.current?.parar();
+      } catch {
+        /* ignorar */
+      }
+    },
+    [],
+  );
 
   const listarDispositivos = async () => {
     try {
@@ -109,32 +120,42 @@ export function MicPanel() {
     if (aTestar) return;
     setATestar(true);
     setResultado(null);
+    const finais: string[] = [];
     try {
-      let recebido = false;
-      gravadorRef.current = await iniciarGravador({
-        intervaloMs: DURACAO_TESTE_MS,
-        onBloco: (wavBase64) => {
-          if (recebido) return;
-          recebido = true;
-          void (async () => {
-            try {
-              const { texto } = await transcreverBloco({ data: { wavBase64 } });
-              setResultado(texto || "(nada percetível — fala mais alto ou aproxima-te)");
-            } catch (erro) {
-              console.error(erro);
-              toast.error("Falha ao transcrever o teste");
-            } finally {
-              await gravadorRef.current?.parar();
-              gravadorRef.current = null;
-              setATestar(false);
-            }
-          })();
+      // Evita conflito com o medidor de nível (dois getUserMedia no mesmo mic)
+      if (aEscutar) await pararEscuta();
+
+      const { token } = await pedirToken({ data: undefined });
+      const deviceId = selecionado === "auto" ? null : selecionado;
+      sessaoTesteRef.current = await iniciarTranscricao({
+        token,
+        deviceId,
+        onParcial: (texto) => setResultado(texto || null),
+        onFinal: (texto) => {
+          if (texto.trim()) finais.push(texto.trim());
+          setResultado(finais.join(" ") || texto);
         },
-        onErro: (erro) => console.error(erro),
+        onEstado: () => {},
       });
+
+      await new Promise((r) => window.setTimeout(r, DURACAO_TESTE_MS));
+      sessaoTesteRef.current?.parar();
+      sessaoTesteRef.current = null;
+
+      const texto = finais.join(" ").trim();
+      setResultado(texto || "(nada percetível — fala mais alto ou aproxima-te)");
     } catch (erro) {
       console.error(erro);
-      toast.error("Não consegui aceder ao microfone");
+      try {
+        sessaoTesteRef.current?.parar();
+      } catch {
+        /* ignorar */
+      }
+      sessaoTesteRef.current = null;
+      toast.error(
+        erro instanceof Error ? erro.message : "Falha ao transcrever o teste",
+      );
+    } finally {
       setATestar(false);
     }
   };
@@ -148,7 +169,11 @@ export function MicPanel() {
             Verifica se o teu microfone está a captar som antes de iniciar a sessão.
           </p>
         </div>
-        <Button size="sm" variant={aEscutar ? "secondary" : "default"} onClick={() => (aEscutar ? void pararEscuta() : void comecarEscuta())}>
+        <Button
+          size="sm"
+          variant={aEscutar ? "secondary" : "default"}
+          onClick={() => (aEscutar ? void pararEscuta() : void comecarEscuta())}
+        >
           {aEscutar ? "Parar" : "Testar áudio"}
         </Button>
       </div>
@@ -172,7 +197,6 @@ export function MicPanel() {
         </p>
       </div>
 
-
       <div className="mt-4 space-y-2">
         <div className="h-3 w-full overflow-hidden rounded bg-muted">
           <div
@@ -194,7 +218,7 @@ export function MicPanel() {
 
       <div className="mt-4 flex items-center gap-3">
         <Button size="sm" variant="outline" onClick={() => void testarTranscricao()} disabled={aTestar}>
-          {aTestar ? "A gravar 5s…" : "Testar transcrição (5s)"}
+          {aTestar ? "A ouvir 8s…" : "Testar transcrição (8s)"}
         </Button>
         {resultado && <p className="text-xs text-foreground/80">“{resultado}”</p>}
       </div>

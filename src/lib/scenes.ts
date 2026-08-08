@@ -15,6 +15,16 @@ import {
   HeartPulse,
   Coins,
   Flame,
+  Ear,
+  Hexagon,
+  Droplets,
+  Link2,
+  Hammer,
+  Orbit,
+  Megaphone,
+  Clock,
+  Radio,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 
@@ -61,6 +71,7 @@ export function sceneIcon(name: string): LucideIcon {
 
 export const SCENE_ICON_OPTIONS = Object.keys(iconMap);
 
+/** Catálogo completo de efeitos (ficheiros em public/sfx/{key}.mp3). */
 export const SFX_KEYS = [
   "espada",
   "porta",
@@ -72,9 +83,23 @@ export const SFX_KEYS = [
   "coracao",
   "moedas",
   "dragao",
+  // Ordem Paranormal / sessão Odol Hiria
+  "sussurro",
+  "ritual",
+  "gotas",
+  "correntes",
+  "forja",
+  "portal",
+  "grito",
+  "relogio",
+  "estatica",
+  "impacto",
 ] as const;
 
 export type SfxKey = (typeof SFX_KEYS)[number];
+
+/** Alias explícito do catálogo partilhado (packs escolhem subsets). */
+export const SFX_CATALOG = SFX_KEYS;
 
 export const SFX_META: Record<SfxKey, { nome: string; icon: LucideIcon }> = {
   espada: { nome: "Espada", icon: Swords },
@@ -87,4 +112,18 @@ export const SFX_META: Record<SfxKey, { nome: string; icon: LucideIcon }> = {
   coracao: { nome: "Coração", icon: HeartPulse },
   moedas: { nome: "Moedas", icon: Coins },
   dragao: { nome: "Dragão", icon: Flame },
+  sussurro: { nome: "Sussurro", icon: Ear },
+  ritual: { nome: "Ritual", icon: Hexagon },
+  gotas: { nome: "Gotas", icon: Droplets },
+  correntes: { nome: "Correntes", icon: Link2 },
+  forja: { nome: "Forja", icon: Hammer },
+  portal: { nome: "Portal", icon: Orbit },
+  grito: { nome: "Grito", icon: Megaphone },
+  relogio: { nome: "Relógio", icon: Clock },
+  estatica: { nome: "Estática", icon: Radio },
+  impacto: { nome: "Impacto", icon: Zap },
 };
+
+export function sfxMeta(key: string) {
+  return SFX_META[key as SfxKey] ?? null;
+}

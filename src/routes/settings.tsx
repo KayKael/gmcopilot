@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { TopBar } from "@/components/gm/TopBar";
 import { SpotifyPanel } from "@/components/gm/SpotifyPanel";
 import { SfxPanel } from "@/components/gm/SfxPanel";
+import { SfxPacksPanel } from "@/components/gm/SfxPacksPanel";
 import { MicPanel } from "@/components/gm/MicPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -143,7 +144,7 @@ function SettingsPage() {
             <div>
               <h1 className="text-lg font-semibold">Definições</h1>
               <p className="text-xs text-muted-foreground">
-                Cenas (UI/SFX) e moods musicais (Mood DJ) são eixos separados.
+                Cenas, packs de SFX (DnD / Ordem / custom) e moods musicais.
               </p>
             </div>
             <Button onClick={() => void guardar()} disabled={saving || loading}>
@@ -278,6 +279,7 @@ function SettingsPage() {
           </div>
 
           <SpotifyPanel />
+          <SfxPacksPanel />
           <SfxPanel />
           <MicPanel />
         </div>

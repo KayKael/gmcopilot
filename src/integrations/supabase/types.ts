@@ -68,6 +68,36 @@ export type Database = {
         }
         Relationships: []
       }
+      sfx_packs: {
+        Row: {
+          ativo: boolean
+          built_in: boolean
+          efeitos: string[]
+          id: string
+          key: string
+          nome: string
+          ordem: number
+        }
+        Insert: {
+          ativo?: boolean
+          built_in?: boolean
+          efeitos?: string[]
+          id?: string
+          key: string
+          nome: string
+          ordem?: number
+        }
+        Update: {
+          ativo?: boolean
+          built_in?: boolean
+          efeitos?: string[]
+          id?: string
+          key?: string
+          nome?: string
+          ordem?: number
+        }
+        Relationships: []
+      }
       scene_configs: {
         Row: {
           cor: string
@@ -185,6 +215,62 @@ export type Database = {
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      visual_assets: {
+        Row: {
+          created_at: string
+          id: string
+          nome: string
+          ordem: number
+          public_url: string
+          storage_path: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          nome: string
+          ordem?: number
+          public_url: string
+          storage_path: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          nome?: string
+          ordem?: number
+          public_url?: string
+          storage_path?: string
+        }
+        Relationships: []
+      }
+      visual_presentation: {
+        Row: {
+          active_asset_id: string | null
+          fade_ms: number
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          active_asset_id?: string | null
+          fade_ms?: number
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          active_asset_id?: string | null
+          fade_ms?: number
+          id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_presentation_active_asset_id_fkey"
+            columns: ["active_asset_id"]
+            isOneToOne: false
+            referencedRelation: "visual_assets"
             referencedColumns: ["id"]
           },
         ]

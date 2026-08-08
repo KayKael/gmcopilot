@@ -2,20 +2,27 @@ import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
-import { iniciarGravador, type GravadorAudio } from "@/lib/audio-recorder";
-import { transcreverBloco } from "@/lib/transcricao.functions";
+import { criarTokenTranscricao } from "@/lib/realtime.functions";
 import { resumirSessao } from "@/lib/sessao.functions";
+import {
+  actualizarCallbacksTranscricao,
+  definirSessionIdActivo,
+  ligarTranscricaoRuntime,
+  marcarPararTranscricao,
+  obterSessaoTranscricao,
+  obterSessionIdActivo,
+  pararTranscricaoRuntime,
+  setMudoRuntime,
+} from "@/lib/transcricao-runtime";
 import { useSessionStore } from "@/store/session";
 
+const MAX_RETRIES = 3;
+
 export function useTranscricao() {
-  const transcrever = useServerFn(transcreverBloco);
+  const pedirToken = useServerFn(criarTokenTranscricao);
   const gerarResumo = useServerFn(resumirSessao);
-  const gravadorRef = useRef<GravadorAudio | null>(null);
-  const filaRef = useRef<Promise<void>>(Promise.resolve());
-  const falhasRef = useRef(0);
-  const aPararRef = useRef(false);
-  const reiniciandoRef = useRef(false);
-  const sidRef = useRef<string | null>(null);
+  const retriesRef = useRef(0);
+  const aReconectarRef = useRef(false);
 
   const status = useSessionStore((s) => s.status);
   const setStatus = useSessionStore((s) => s.setStatus);
@@ -43,74 +50,86 @@ export function useTranscricao() {
     [addLinha],
   );
 
-  const ligarGravador = useCallback(
-    async (sid: string) => {
-      gravadorRef.current = await iniciarGravador({
-        intervaloMs: 6000,
-        onBloco: (wavBase64) => {
-          setParcial("a transcrever…");
-          filaRef.current = filaRef.current.then(async () => {
-            try {
-              const { texto } = await transcrever({ data: { wavBase64 } });
-              falhasRef.current = 0;
-              const limpo = texto.trim();
-              if (limpo) await guardarLinha(limpo, sid);
-            } catch (erro) {
-              console.error(erro);
-              falhasRef.current += 1;
-              if (falhasRef.current === 1) toast.error("Falha ao transcrever áudio — vou continuar a tentar");
-            } finally {
-              setParcial("");
-            }
-          });
-        },
-        onErro: (erro) => console.error("Erro ao preparar áudio:", erro),
-        onSemAudio: () => {
-          if (aPararRef.current || reiniciandoRef.current) return;
-          reiniciandoRef.current = true;
-          console.warn("Áudio parou de chegar — a reiniciar o gravador");
-          setStatus("reconectando");
-          void (async () => {
-            try {
-              await gravadorRef.current?.parar();
-            } catch {
-              /* ignorar */
-            }
-            gravadorRef.current = null;
-            try {
-              if (!aPararRef.current) await ligarRef.current(sid);
-            } catch (erro) {
-              console.error(erro);
-              toast.error("Perdi o microfone — carrega em parar e iniciar de novo");
-              setStatus("parada");
-            } finally {
-              reiniciandoRef.current = false;
-            }
-          })();
-        },
-      });
-      falhasRef.current = 0;
-      setMicMudo(false);
-      setStatus("ativa");
-    },
-    [guardarLinha, setMicMudo, setParcial, setStatus, transcrever],
-  );
+  const ligarWebRTC = useCallback(async () => {
+    marcarPararTranscricao(false);
+    const { token } = await pedirToken({ data: undefined });
+    await ligarTranscricaoRuntime(token);
+    setMicMudo(false);
+  }, [pedirToken, setMicMudo]);
 
-  const ligarRef = useRef(ligarGravador);
-  ligarRef.current = ligarGravador;
+  const ligarRef = useRef(ligarWebRTC);
+  ligarRef.current = ligarWebRTC;
+
+  const reconectar = useCallback(async () => {
+    if (aReconectarRef.current) return;
+    const sid = obterSessionIdActivo();
+    if (!sid) {
+      setStatus("parada");
+      return;
+    }
+
+    aReconectarRef.current = true;
+    pararTranscricaoRuntime();
+    marcarPararTranscricao(false);
+
+    if (retriesRef.current >= MAX_RETRIES) {
+      setStatus("parada");
+      aReconectarRef.current = false;
+      toast.error("Ligação de transcrição perdida (sem mais tentativas)");
+      return;
+    }
+
+    retriesRef.current += 1;
+    setStatus("reconectando");
+    toast.message(`A reconectar transcrição (${retriesRef.current}/${MAX_RETRIES})…`);
+
+    try {
+      await ligarRef.current();
+      aReconectarRef.current = false;
+    } catch (e) {
+      console.error(e);
+      aReconectarRef.current = false;
+      if (retriesRef.current >= MAX_RETRIES) {
+        setStatus("parada");
+        toast.error("Não consegui reestabelecer a transcrição");
+      } else {
+        window.setTimeout(() => void reconectarRef.current(), 1500 * retriesRef.current);
+      }
+    }
+  }, [setStatus]);
+
+  const reconectarRef = useRef(reconectar);
+  reconectarRef.current = reconectar;
+
+  // Mantém callbacks frescos mesmo quando o TopBar remonta noutro ecrã
+  useEffect(() => {
+    actualizarCallbacksTranscricao({
+      onParcial: setParcial,
+      onFinal: (texto) => {
+        const sid = obterSessionIdActivo();
+        void guardarLinha(texto, sid);
+      },
+      onEstado: (estado) => {
+        if (estado === "ligado") {
+          retriesRef.current = 0;
+          aReconectarRef.current = false;
+          setStatus("ativa");
+        } else if (estado === "erro") {
+          if (aReconectarRef.current) return;
+          void reconectarRef.current();
+        }
+      },
+    });
+  }, [guardarLinha, setParcial, setStatus]);
 
   const parar = useCallback(async () => {
-    aPararRef.current = true;
-    try {
-      await gravadorRef.current?.parar();
-      await filaRef.current;
-    } catch {
-      /* ignorar */
-    }
-    gravadorRef.current = null;
+    marcarPararTranscricao(true);
+    aReconectarRef.current = false;
+    pararTranscricaoRuntime();
     setParcial("");
     setStatus("parada");
-    const sid = sidRef.current ?? sessionId;
+    const sid = obterSessionIdActivo() ?? sessionId;
+    definirSessionIdActivo(null);
     if (sid) {
       await supabase
         .from("sessions")
@@ -130,9 +149,10 @@ export function useTranscricao() {
   }, [gerarResumo, sessionId, setParcial, setStatus]);
 
   const iniciar = useCallback(async () => {
-    if (gravadorRef.current) return;
-    aPararRef.current = false;
-    filaRef.current = Promise.resolve();
+    if (obterSessaoTranscricao()) return;
+    marcarPararTranscricao(false);
+    aReconectarRef.current = false;
+    retriesRef.current = 0;
     setStatus("reconectando");
     limparTranscricao();
     try {
@@ -143,11 +163,13 @@ export function useTranscricao() {
         .single();
       if (error) throw new Error(error.message);
       const sid = sess.id as string;
-      sidRef.current = sid;
+      definirSessionIdActivo(sid);
       setSessionId(sid);
-      await ligarRef.current(sid);
+      await ligarRef.current();
     } catch (e) {
       console.error(e);
+      pararTranscricaoRuntime();
+      definirSessionIdActivo(null);
       setStatus("parada");
       toast.error(
         e instanceof DOMException
@@ -160,9 +182,9 @@ export function useTranscricao() {
   }, [limparTranscricao, setSessionId, setStatus]);
 
   const alternarMic = useCallback(() => {
-    if (!gravadorRef.current) return;
+    if (!obterSessaoTranscricao()) return;
     const novo = !micMudo;
-    gravadorRef.current.setMudo(novo);
+    setMudoRuntime(novo);
     setMicMudo(novo);
   }, [micMudo, setMicMudo]);
 
@@ -176,13 +198,12 @@ export function useTranscricao() {
     return () => window.removeEventListener("keydown", onKey);
   }, [alternarMic]);
 
-  useEffect(
-    () => () => {
-      aPararRef.current = true;
-      void gravadorRef.current?.parar();
-    },
-    [],
-  );
+  // Rehidrata o badge se a ligação WebRTC ainda estiver viva após navegação
+  useEffect(() => {
+    if (obterSessaoTranscricao() && status === "parada") {
+      setStatus("ativa");
+    }
+  }, [setStatus, status]);
 
   return { status, iniciar, parar, alternarMic, micMudo };
 }

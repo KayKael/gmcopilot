@@ -1,6 +1,7 @@
 /**
- * Ponte de preview para crossfade perceptível.
- * Usa <audio> + volume (evita CORS de fetch no CDN do Spotify).
+ * Ponte de preview para crossfade.
+ * Usa fontes com excerto do INÍCIO (Deezer → iTunes).
+ * Nunca o preview_url do Spotify (é do meio da faixa).
  */
 
 let audio: HTMLAudioElement | null = null;
@@ -30,15 +31,18 @@ async function fadeAudioVolume(
   para: number,
   duracaoMs: number,
   signal: AbortSignal,
-  steps = 16,
+  steps = 40,
 ) {
-  const stepMs = Math.max(40, Math.round(duracaoMs / steps));
+  const stepMs = Math.max(35, Math.round(duracaoMs / steps));
   const gen = fadeGen;
   for (let i = 1; i <= steps; i++) {
     if (signal.aborted || gen !== fadeGen) {
       throw new DOMException("Aborted", "AbortError");
     }
-    el.volume = Math.max(0, Math.min(1, de + ((para - de) * i) / steps));
+    const t = i / steps;
+    // ease-in-out cúbico — encaixa sem pico
+    const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    el.volume = Math.max(0, Math.min(1, de + (para - de) * eased));
     await sleep(stepMs, signal);
   }
   el.volume = Math.max(0, Math.min(1, para));
@@ -59,35 +63,72 @@ export function pararPonte() {
   }
 }
 
+export function ponteActiva(): boolean {
+  return Boolean(audio && !audio.paused);
+}
+
+/** Posição actual do pedaço da próxima (ms) — para alinhar o Spotify. */
+export function tempoPonteMs(): number {
+  if (!audio) return 0;
+  const t = audio.currentTime;
+  return Number.isFinite(t) ? Math.max(0, Math.round(t * 1000)) : 0;
+}
+
+async function criarAudio(previewUrl: string): Promise<HTMLAudioElement | null> {
+  const el = new Audio();
+  el.preload = "auto";
+  // Sem crossOrigin: alguns CDNs de preview bloqueiam CORS e o play falha
+  el.src = previewUrl;
+
+  await new Promise<void>((resolve) => {
+    const ok = () => {
+      cleanup();
+      resolve();
+    };
+    const fail = () => {
+      cleanup();
+      resolve();
+    };
+    const cleanup = () => {
+      el.removeEventListener("canplaythrough", ok);
+      el.removeEventListener("canplay", ok);
+      el.removeEventListener("error", fail);
+    };
+    el.addEventListener("canplaythrough", ok, { once: true });
+    el.addEventListener("canplay", ok, { once: true });
+    el.addEventListener("error", fail, { once: true });
+    el.load();
+    setTimeout(() => {
+      cleanup();
+      resolve();
+    }, 3500);
+  });
+
+  return el;
+}
+
 /**
- * Começa o preview a volume 0 e faz fade-in.
- * Falhas (404, autoplay, etc.) resolvem sem lançar — caller faz fallback.
+ * Pedaço do INÍCIO da próxima faixa no browser (simultâneo com a actual).
+ * Volume baixo por defeito — previews HTML soam mais altos que o Spotify.
  */
-export async function iniciarPonte(
+export async function iniciarPonteProxima(
   previewUrl: string,
   signal: AbortSignal,
-  fadeInMs = 900,
+  fadeInMs = 2800,
+  volumeAlvo = 0.12,
 ): Promise<boolean> {
   pararPonte();
   if (!previewUrl || signal.aborted) return false;
 
-  const el = new Audio();
-  el.preload = "auto";
-  el.crossOrigin = "anonymous";
-  el.volume = 0;
-  el.src = previewUrl;
-  audio = el;
-
   try {
+    const el = await criarAudio(previewUrl);
+    if (!el || signal.aborted) return false;
+    el.currentTime = 0;
+    el.volume = 0;
+    audio = el;
     await el.play();
-  } catch {
-    pararPonte();
-    return false;
-  }
-
-  try {
-    await fadeAudioVolume(el, 0, 0.85, fadeInMs, signal);
-    return !signal.aborted && audio === el;
+    await fadeAudioVolume(el, 0, volumeAlvo, fadeInMs, signal, 40);
+    return !signal.aborted && audio === el && !el.paused;
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") {
       pararPonte();
@@ -98,15 +139,54 @@ export async function iniciarPonte(
   }
 }
 
-/** Fade-out do preview e stop. */
-export async function terminarPonte(signal?: AbortSignal, fadeOutMs = 700): Promise<void> {
+/** @deprecated */
+export async function iniciarPonte(
+  previewUrl: string,
+  signal: AbortSignal,
+  fadeInMs = 2800,
+  volumeAlvo = 0.12,
+): Promise<boolean> {
+  return iniciarPonteProxima(previewUrl, signal, fadeInMs, volumeAlvo);
+}
+
+/** @deprecated */
+export async function iniciarPonteHold(
+  previewUrl: string,
+  signal: AbortSignal,
+  volumeInicial = 0.1,
+): Promise<boolean> {
+  return iniciarPonteProxima(previewUrl, signal, 600, volumeInicial);
+}
+
+/** Fade-out do pedaço e stop. */
+export async function terminarPonte(signal?: AbortSignal, fadeOutMs = 3200): Promise<void> {
   const el = audio;
   if (!el) return;
   const localSignal = signal ?? new AbortController().signal;
   try {
-    await fadeAudioVolume(el, el.volume, 0, fadeOutMs, localSignal, 12);
+    await fadeAudioVolume(el, el.volume, 0, fadeOutMs, localSignal, 40);
   } catch {
-    // ignore abort / errors — still stop
+    // ignore
   }
   if (audio === el) pararPonte();
+}
+
+/**
+ * Preview do INÍCIO da faixa via server (ISRC → Deezer → iTunes, match estrito).
+ * Sem match fiável = null (não toca música aleatória).
+ */
+export async function resolverPreviewInicio(
+  nome: string,
+  artista: string,
+  isrc?: string | null,
+): Promise<string | null> {
+  try {
+    const { buscarPreviewInicio } = await import("@/lib/preview.functions");
+    return await buscarPreviewInicio({
+      data: { nome, artista, isrc: isrc ?? null },
+    });
+  } catch (e) {
+    console.warn("[crossfade] falha a resolver preview início", e);
+    return null;
+  }
 }

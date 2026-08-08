@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { classificarCena } from "@/lib/cena.functions";
-import { SFX_KEYS, type SceneKey } from "@/lib/scenes";
+import type { SceneKey } from "@/lib/scenes";
+import { efeitosDoPack, resolverPackAtivo } from "@/lib/sfx-packs";
 import { useSessionStore } from "@/store/session";
 import { useMudarCena, useTocarMood } from "@/hooks/useCena";
 
@@ -65,13 +66,16 @@ export function useClassificador() {
         return;
       }
 
+      const pack = resolverPackAtivo(state0.sfxPacks, state0.sfxPackAtivo);
+      const sfxPack = efeitosDoPack(pack);
+
       setAClassificar(true);
       try {
         const r = await pedir({
           data: {
             texto: janela,
             cenas: scenes.map((s) => s.key),
-            sfx: [...SFX_KEYS],
+            sfx: sfxPack,
             moods: catalogo.map((m) => ({
               key: m.key,
               nome: m.nome,

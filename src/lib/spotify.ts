@@ -1,9 +1,11 @@
 import { SPOTIFY_CLIENT_ID, SPOTIFY_SCOPES } from "@/config/spotify";
 import { normalizarPlaylistUri } from "@/lib/music-moods";
 import {
-  iniciarPonte,
+  iniciarPonteProxima,
   terminarPonte,
   pararPonte,
+  tempoPonteMs,
+  resolverPreviewInicio,
 } from "@/lib/spotify-crossfade";
 
 const TOKEN_KEY = "gmcp.spotify.token";
@@ -11,7 +13,12 @@ const VERIFIER_KEY = "gmcp.spotify.verifier";
 const DEVICE_KEY = "gmcp.spotify.device";
 const RESUME_LOGIN_KEY = "gmcp.spotify.resume_login";
 const CROSSFADE_KEY = "gmcp.spotify.crossfade";
+const VOLUME_KEY = "gmcp.spotify.volume";
+/** Bump quando scopes mudam — força ecrã de consentimento no próximo login. */
+const SCOPES_VER_KEY = "gmcp.spotify.scopes_ver";
+const SCOPES_VER = "2"; // playlist-read-private + collaborative
 let resumeLoginDisparado = false;
+let avisoPlaylist403Feito = false;
 
 export interface SpotifyToken {
   access_token: string;
@@ -37,6 +44,8 @@ export interface FaixaEscolhida {
   uri: string;
   preview_url: string | null;
   nome: string;
+  artista?: string;
+  isrc?: string | null;
 }
 
 /**
@@ -69,6 +78,22 @@ function saveToken(t: SpotifyToken) {
 
 export function logoutSpotify() {
   localStorage.removeItem(TOKEN_KEY);
+  // Próximo login pede de novo os scopes (playlist-read, etc.)
+  localStorage.removeItem(SCOPES_VER_KEY);
+}
+
+function avisarPlaylist403() {
+  if (avisoPlaylist403Feito) return;
+  avisoPlaylist403Feito = true;
+  // Força ecrã de consentimento no próximo “Ligar Spotify”
+  localStorage.removeItem(SCOPES_VER_KEY);
+  void import("sonner").then(({ toast }) => {
+    toast.message("Sem acesso às faixas da playlist", {
+      description:
+        "Desliga e volta a Ligar o Spotify para autorizar leitura de playlists (crossfade). A troca de mood continua com posição aleatória.",
+      duration: 8000,
+    });
+  });
 }
 
 export function getDeviceId(): string | null {
@@ -130,6 +155,10 @@ export async function iniciarLoginSpotify() {
     code_challenge_method: "S256",
     code_challenge: await challengeFrom(verifier),
   });
+  // Força re-consentimento se os scopes da app mudaram (ex.: playlist-read)
+  if (localStorage.getItem(SCOPES_VER_KEY) !== SCOPES_VER) {
+    params.set("show_dialog", "true");
+  }
   window.location.href = `https://accounts.spotify.com/authorize?${params.toString()}`;
 }
 
@@ -170,13 +199,16 @@ export async function trocarCodigoPorToken(code: string) {
   const verifier = sessionStorage.getItem(VERIFIER_KEY);
   if (!verifier) throw new Error("Sessão de login expirada");
   sessionStorage.removeItem(VERIFIER_KEY);
-  return tokenRequest({
+  const token = await tokenRequest({
     client_id: SPOTIFY_CLIENT_ID,
     grant_type: "authorization_code",
     code,
     redirect_uri: redirectUri(),
     code_verifier: verifier,
   });
+  localStorage.setItem(SCOPES_VER_KEY, SCOPES_VER);
+  avisoPlaylist403Feito = false;
+  return token;
 }
 
 async function accessTokenValido(): Promise<string | null> {
@@ -197,17 +229,35 @@ async function accessTokenValido(): Promise<string | null> {
   }
 }
 
+let rateLimitAte = 0;
+
 export async function spotifyFetch(
   path: string,
   init: RequestInit = {},
 ): Promise<Response | null> {
   const access = await accessTokenValido();
   if (!access) return null;
+
+  // Respeita cooldown após 429
+  const espera = rateLimitAte - Date.now();
+  if (espera > 0) await sleep(Math.min(espera, 5000));
+
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${access}`);
   if (init.body) headers.set("Content-Type", "application/json");
   const url = path.startsWith("http") ? path : `https://api.spotify.com/v1${path}`;
-  return fetch(url, { ...init, headers });
+
+  let res = await fetch(url, { ...init, headers });
+
+  if (res.status === 429) {
+    const retry = Number(res.headers.get("Retry-After") || "2");
+    const ms = Math.min(Math.max(retry, 1) * 1000, 8000);
+    rateLimitAte = Date.now() + ms;
+    await sleep(ms);
+    res = await fetch(url, { ...init, headers });
+  }
+
+  return res;
 }
 
 function comDispositivo(path: string) {
@@ -250,10 +300,38 @@ export async function pause() {
   await spotifyFetch(comDispositivo("/me/player/pause"), { method: "PUT" });
 }
 
-export async function definirVolume(percent: number) {
-  await spotifyFetch(comDispositivo(`/me/player/volume?volume_percent=${Math.round(percent)}`), {
+export function obterVolumePreferido(fallback = 70): number {
+  if (typeof window === "undefined") return fallback;
+  const raw = localStorage.getItem(VOLUME_KEY);
+  if (raw === null) return fallback;
+  const v = Number(raw);
+  return Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : fallback;
+}
+
+export function guardarVolumePreferido(percent: number) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(
+    VOLUME_KEY,
+    String(Math.max(0, Math.min(100, Math.round(percent)))),
+  );
+}
+
+export async function definirVolume(percent: number, { persistir = true } = {}) {
+  const v = Math.max(0, Math.min(100, Math.round(percent)));
+  if (persistir) guardarVolumePreferido(v);
+  await spotifyFetch(comDispositivo(`/me/player/volume?volume_percent=${v}`), {
     method: "PUT",
   });
+}
+
+/** Volume alvo da app (preferido). Na 1ª vez, sincroniza com o device. */
+export async function obterVolumeSpotify(): Promise<number> {
+  if (typeof window !== "undefined" && localStorage.getItem(VOLUME_KEY) === null) {
+    const actual = await volumeAtual();
+    guardarVolumePreferido(actual);
+    return actual;
+  }
+  return obterVolumePreferido();
 }
 
 export async function transferirPara(deviceId: string) {
@@ -293,26 +371,29 @@ async function volumeAtual(): Promise<number> {
   return typeof v === "number" ? v : 70;
 }
 
-async function fadeVolume(
+/** Fade suave do volume Spotify (poucos passos para evitar 429). */
+async function fadeVolumeSpotify(
   de: number,
   para: number,
   signal: AbortSignal,
   duracaoMs: number,
-  steps = 16,
 ) {
-  const stepMs = Math.max(55, Math.round(duracaoMs / steps));
+  const steps = 8;
+  const stepMs = Math.max(280, Math.round(duracaoMs / steps));
   let ultimo = Math.round(de);
   for (let i = 1; i <= steps; i++) {
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-    const v = Math.round(de + ((para - de) * i) / steps);
+    const t = i / steps;
+    const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    const v = Math.round(de + (para - de) * eased);
     if (v !== ultimo) {
-      await definirVolume(Math.max(0, Math.min(100, v)));
+      await definirVolume(Math.max(0, Math.min(100, v)), { persistir: false });
       ultimo = v;
     }
     await sleep(stepMs, signal);
   }
   if (ultimo !== Math.round(para)) {
-    await definirVolume(Math.max(0, Math.min(100, Math.round(para))));
+    await definirVolume(Math.max(0, Math.min(100, Math.round(para))), { persistir: false });
   }
 }
 
@@ -342,111 +423,229 @@ async function activarDispositivo(): Promise<string | null> {
 }
 
 /**
- * Escolhe faixa aleatória da playlist.
- * Prefere faixas com preview_url (para a ponte de crossfade).
+ * Escolhe alvo aleatório na playlist.
+ * Feb 2026: `/tracks` foi substituído por `/items` e só funciona em playlists
+ * que o user possui/colabora. Se 403, usamos só posição aleatória (sem spam).
  */
-export async function escolherFaixaAleatoria(
-  playlistUri: string,
-): Promise<FaixaEscolhida | null> {
-  const id = playlistUri.replace(/^spotify:playlist:/, "");
-  if (!id) return null;
+export type AlvoPlaylist =
+  | { mode: "track"; uri: string; preview_url: string | null; nome: string }
+  | { mode: "position"; position: number };
 
-  const meta = await spotifyFetch(`/playlists/${id}?fields=tracks.total`);
-  let total = 0;
-  if (meta?.ok) {
-    const m = (await meta.json()) as { tracks?: { total?: number } };
-    total = m.tracks?.total ?? 0;
+/** Após 403, não voltamos a pedir items nesta sessão (evita spam + 429). */
+let playlistItemsBloqueado = false;
+
+async function totalFaixasPlaylist(id: string): Promise<number> {
+  // Preferir campo novo `items.total`; fallback `tracks.total`
+  const meta = await spotifyFetch(
+    `/playlists/${id}?fields=items.total,tracks.total&market=from_token`,
+  );
+  if (!meta?.ok) return 0;
+  const m = (await meta.json()) as {
+    items?: { total?: number };
+    tracks?: { total?: number };
+  };
+  return m.items?.total ?? m.tracks?.total ?? 0;
+}
+
+export async function escolherAlvoPlaylist(
+  playlistUri: string,
+): Promise<AlvoPlaylist> {
+  const id = playlistUri.replace(/^spotify:playlist:/, "");
+  const total = id && !playlistItemsBloqueado ? await totalFaixasPlaylist(id) : 0;
+  const fallbackPosition =
+    total > 1 ? Math.floor(Math.random() * total) : Math.floor(Math.random() * 40);
+
+  if (!id || playlistItemsBloqueado) {
+    return { mode: "position", position: fallbackPosition };
   }
 
   const limit = 50;
   const maxOffset =
     total > limit ? Math.floor(Math.random() * Math.max(1, total - limit + 1)) : 0;
 
+  // Endpoint novo (tracks está deprecated / 403)
   const res = await spotifyFetch(
-    `/playlists/${id}/tracks?fields=items(track(uri,preview_url,name))&limit=${limit}&offset=${maxOffset}`,
+    `/playlists/${id}/items?market=from_token&limit=${limit}&offset=${maxOffset}`,
   );
-  if (!res?.ok) return null;
+
+  if (res?.status === 401 || res?.status === 403) {
+    playlistItemsBloqueado = true;
+    avisarPlaylist403();
+    return { mode: "position", position: fallbackPosition };
+  }
+
+  if (!res?.ok) {
+    return { mode: "position", position: fallbackPosition };
+  }
 
   const data = (await res.json()) as {
-    items?: { track?: { uri?: string; preview_url?: string | null; name?: string } | null }[];
+    items?: {
+      item?: {
+        uri?: string;
+        preview_url?: string | null;
+        name?: string;
+        type?: string;
+        is_local?: boolean;
+        artists?: { name: string }[];
+      } | null;
+      track?: {
+        uri?: string;
+        preview_url?: string | null;
+        name?: string;
+        is_local?: boolean;
+        artists?: { name: string }[];
+      } | null;
+    }[];
   };
 
   const faixas: FaixaEscolhida[] = [];
-  for (const item of data.items ?? []) {
-    const t = item.track;
-    if (!t?.uri?.startsWith("spotify:track:")) continue;
+  for (const row of data.items ?? []) {
+    const t = row.item ?? row.track;
+    if (!t?.uri?.startsWith("spotify:track:") || t.is_local) continue;
     faixas.push({
       uri: t.uri,
       preview_url: t.preview_url ?? null,
       nome: t.name ?? "—",
+      artista: (t.artists ?? []).map((a) => a.name).join(" "),
     });
   }
-  if (!faixas.length) return null;
 
-  const comPreview = faixas.filter((f) => f.preview_url);
-  const pool = comPreview.length ? comPreview : faixas;
-  return pool[Math.floor(Math.random() * pool.length)] ?? null;
+  if (!faixas.length) {
+    return { mode: "position", position: fallbackPosition };
+  }
+
+  // Qualquer faixa serve — o pedaço do início vem do Deezer/iTunes, não do preview Spotify
+  const escolha = faixas[Math.floor(Math.random() * faixas.length)]!;
+  const meta = await obterMetaFaixa(escolha);
+  return {
+    mode: "track",
+    uri: meta.uri,
+    preview_url: null, // nunca usar preview Spotify (meio da faixa)
+    nome: meta.nome,
+  };
 }
 
-/** Próxima faixa na fila do player (para skip com ponte). */
+export async function escolherFaixaAleatoria(
+  playlistUri: string,
+): Promise<FaixaEscolhida | null> {
+  const alvo = await escolherAlvoPlaylist(playlistUri);
+  if (alvo.mode !== "track") return null;
+  return {
+    uri: alvo.uri,
+    preview_url: alvo.preview_url,
+    nome: alvo.nome,
+  };
+}
+
+/** Próxima faixa na fila, com nome/artista para resolver preview do início. */
 async function obterProximaDaFila(): Promise<FaixaEscolhida | null> {
   const res = await spotifyFetch("/me/player/queue");
   if (!res?.ok) return null;
   const data = (await res.json()) as {
-    queue?: { uri?: string; preview_url?: string | null; name?: string }[];
+    queue?: {
+      uri?: string;
+      name?: string;
+      artists?: { name: string }[];
+    }[];
   };
   const next = data.queue?.[0];
   if (!next?.uri?.startsWith("spotify:track:")) return null;
-  return {
+  return obterMetaFaixa({
     uri: next.uri,
-    preview_url: next.preview_url ?? null,
+    preview_url: null,
     nome: next.name ?? "—",
+    artista: (next.artists ?? []).map((a) => a.name).join(" "),
+  });
+}
+
+/** Nome + artista + ISRC via Get Track (para preview do início fiável). */
+async function obterMetaFaixa(faixa: FaixaEscolhida): Promise<FaixaEscolhida> {
+  const id = faixa.uri.replace(/^spotify:track:/, "");
+  if (!id) return faixa;
+  const tr = await spotifyFetch(`/tracks/${id}?market=from_token`);
+  if (!tr?.ok) return faixa;
+  const t = (await tr.json()) as {
+    name?: string;
+    artists?: { name: string }[];
+    external_ids?: { isrc?: string };
+  };
+  return {
+    ...faixa,
+    nome: t.name ?? faixa.nome,
+    artista: (t.artists ?? []).map((a) => a.name).join(" ") || faixa.artista || "",
+    isrc: t.external_ids?.isrc ?? faixa.isrc ?? null,
+    preview_url: null,
   };
 }
 
 /**
- * Dip + ponte de preview opcional → acção → sobe volume.
- * Sem preview / crossfade OFF → só dip (comportamento anterior).
+ * Crossfade com volumes encaixados:
+ * Spotify desce um pouco enquanto o preview (baixo) sobe → troca →
+ * Spotify sobe e preview desce em espelho.
  */
 async function comCrossfade(
-  acao: () => Promise<void>,
-  previewUrl: string | null,
+  acao: (positionMs: number) => Promise<void>,
+  previewInicio: string | null,
 ): Promise<boolean> {
   const { signal, aindaActiva } = iniciarTransicao();
-  const usarPonte = getCrossfadeEnabled() && Boolean(previewUrl);
+  const crossfadeOn = getCrossfadeEnabled();
 
   try {
-    const baseVol = await volumeAtual();
-    const volMix = Math.max(32, Math.round(baseVol * 0.48));
+    const deviceVol = await volumeAtual();
+    const baseVol = obterVolumePreferido(deviceVol);
+    // Preview HTML soa mais alto que o Spotify — manter bem baixo
+    const ponteVol = Math.min(0.14, Math.max(0.07, (baseVol / 100) * 0.16));
+    // Dip suave da actual para o preview encaixar sem pico
+    const volDip = Math.max(28, Math.round(baseVol * 0.62));
+    const fadeInMs = 2800;
+    const overlapMs = 900;
+    const fadeOutMs = 3200;
 
-    const fadeOutSpotify = fadeVolume(baseVol, volMix, signal, 1000, 16);
-    const ponteIn = usarPonte
-      ? iniciarPonte(previewUrl!, signal, 900)
-      : Promise.resolve(false);
+    let ponteOk = false;
+    let positionMs = 0;
 
-    const [, ponteOk] = await Promise.all([fadeOutSpotify, ponteIn]);
+    if (crossfadeOn && previewInicio) {
+      // Actual desce + pedaço da próxima sobe (suave, em paralelo)
+      const [, ok] = await Promise.all([
+        fadeVolumeSpotify(baseVol, volDip, signal, fadeInMs),
+        iniciarPonteProxima(previewInicio, signal, fadeInMs, ponteVol),
+      ]);
+      ponteOk = ok;
+      if (ponteOk && aindaActiva()) {
+        await sleep(overlapMs, signal);
+      }
+      positionMs = tempoPonteMs();
+    }
+
     if (!aindaActiva()) {
       pararPonte();
       return false;
     }
 
-    await acao();
+    await acao(positionMs);
     if (!aindaActiva()) {
       pararPonte();
       return false;
     }
 
-    await definirVolume(volMix);
+    // Nova faixa entra já no volDip; sobe em espelho com o fade-out do preview
+    await definirVolume(volDip, { persistir: false });
     await sleep(120, signal);
 
     if (ponteOk && aindaActiva()) {
       await Promise.all([
-        terminarPonte(signal, 700),
-        fadeVolume(volMix, baseVol, signal, 1100, 16),
+        fadeVolumeSpotify(volDip, baseVol, signal, fadeOutMs),
+        terminarPonte(signal, fadeOutMs),
       ]);
-    } else if (aindaActiva()) {
+    } else {
       pararPonte();
-      await fadeVolume(volMix, baseVol, signal, 1100, 16);
+      if (aindaActiva()) {
+        await fadeVolumeSpotify(volDip, baseVol, signal, Math.min(fadeOutMs, 2000));
+      }
+    }
+
+    if (aindaActiva()) {
+      await definirVolume(baseVol, { persistir: false });
     }
 
     return aindaActiva();
@@ -454,26 +653,64 @@ async function comCrossfade(
     pararPonte();
     if (e instanceof DOMException && e.name === "AbortError") return false;
     console.error(e);
+    try {
+      const base = obterVolumePreferido(70);
+      await definirVolume(base, { persistir: false });
+    } catch {
+      // ignore
+    }
     return false;
   }
 }
 
-/** Segue para a próxima faixa com transição suave (+ ponte se houver preview na fila). */
-export async function seguinte() {
-  const proxima = getCrossfadeEnabled() ? await obterProximaDaFila() : null;
-  await comCrossfade(
-    async () => {
-      await spotifyFetch(comDispositivo("/me/player/next"), { method: "POST" });
-    },
-    proxima?.preview_url ?? null,
+async function seekPosicao(positionMs: number) {
+  if (positionMs <= 0) return;
+  await spotifyFetch(
+    comDispositivo(`/me/player/seek?position_ms=${Math.round(positionMs)}`),
+    { method: "PUT" },
   );
+}
+
+/** Skip: pedaço do início da próxima → play alinhado. */
+export async function seguinte() {
+  let previewInicio: string | null = null;
+  let proxima: FaixaEscolhida | null = null;
+
+  if (getCrossfadeEnabled()) {
+    proxima = await obterProximaDaFila();
+    if (proxima) {
+      previewInicio = await resolverPreviewInicio(
+        proxima.nome,
+        proxima.artista ?? "",
+        proxima.isrc,
+      );
+    }
+  }
+
+  await comCrossfade(async (positionMs) => {
+    if (proxima?.uri) {
+      const res = await spotifyFetch(comDispositivo("/me/player/play"), {
+        method: "PUT",
+        body: JSON.stringify({
+          uris: [proxima.uri],
+          position_ms: positionMs,
+        }),
+      });
+      if (!res?.ok && res?.status !== 204) {
+        await spotifyFetch(comDispositivo("/me/player/next"), { method: "POST" });
+        await seekPosicao(positionMs);
+      }
+    } else {
+      await spotifyFetch(comDispositivo("/me/player/next"), { method: "POST" });
+      await seekPosicao(positionMs);
+    }
+  }, previewInicio);
 }
 
 export type TocarPlaylistResult = "ok" | "premium" | "nodevice" | "fail" | "cancelled";
 
 /**
- * Troca de playlist com crossfade (ponte preview) ou dip:
- * escolhe faixa aleatória → fade ↓ + preview ↑ → play → preview ↓ + fade ↑.
+ * Troca de playlist com crossfade no início da faixa alvo.
  */
 export async function tocarPlaylist(
   uri: string,
@@ -482,24 +719,41 @@ export async function tocarPlaylist(
   const contextUri = normalizarPlaylistUri(uri);
   if (!contextUri.startsWith("spotify:playlist:")) return "fail";
 
-  const faixa = await escolherFaixaAleatoria(contextUri);
-  const offset = faixa
-    ? { uri: faixa.uri }
-    : { position: Math.floor(Math.random() * 20) };
+  const alvo = await escolherAlvoPlaylist(contextUri);
+  const offset =
+    alvo.mode === "track"
+      ? { uri: alvo.uri }
+      : { position: alvo.position };
 
-  const body = JSON.stringify({
-    context_uri: contextUri,
-    offset,
-  });
+  let previewInicio: string | null = null;
+  if (fade && getCrossfadeEnabled() && alvo.mode === "track") {
+    const meta = await obterMetaFaixa({
+      uri: alvo.uri,
+      preview_url: null,
+      nome: alvo.nome,
+    });
+    previewInicio = await resolverPreviewInicio(
+      meta.nome,
+      meta.artista ?? "",
+      meta.isrc,
+    );
+  }
 
   if (!fade) {
+    const body = JSON.stringify({
+      context_uri: contextUri,
+      offset,
+      position_ms: 0,
+    });
     const res = await spotifyFetch(comDispositivo("/me/player/play"), {
       method: "PUT",
       body,
     });
-    void spotifyFetch(comDispositivo("/me/player/shuffle?state=true"), {
-      method: "PUT",
-    });
+    if (res?.ok || res?.status === 204) {
+      await spotifyFetch(comDispositivo("/me/player/shuffle?state=true"), {
+        method: "PUT",
+      });
+    }
     if (res?.status === 403) return "premium";
     if (res?.status === 404) return "nodevice";
     return res?.ok || res?.status === 204 ? "ok" : "fail";
@@ -508,48 +762,47 @@ export async function tocarPlaylist(
   let resultado: TocarPlaylistResult = "ok";
   let falhou: TocarPlaylistResult | null = null;
 
-  const ok = await comCrossfade(
-    async () => {
-      void spotifyFetch(comDispositivo("/me/player/shuffle?state=true"), {
-        method: "PUT",
-      });
+  const ok = await comCrossfade(async (positionMs) => {
+    const body = JSON.stringify({
+      context_uri: contextUri,
+      offset,
+      position_ms: positionMs,
+    });
 
-      let res = await spotifyFetch(comDispositivo("/me/player/play"), {
-        method: "PUT",
-        body,
-      });
+    let res = await spotifyFetch(comDispositivo("/me/player/play"), {
+      method: "PUT",
+      body,
+    });
 
-      if (res?.status === 404) {
-        const deviceId = await activarDispositivo();
-        if (!deviceId) {
-          falhou = "nodevice";
-          return;
-        }
-        res = await spotifyFetch(`/me/player/play?device_id=${deviceId}`, {
-          method: "PUT",
-          body,
-        });
-      }
-
-      if (res?.status === 403) {
-        falhou = "premium";
-        return;
-      }
-      if (res?.status === 404) {
+    if (res?.status === 404) {
+      const deviceId = await activarDispositivo();
+      if (!deviceId) {
         falhou = "nodevice";
         return;
       }
-      if (!res?.ok && res?.status !== 204) {
-        falhou = "fail";
-        return;
-      }
-
-      void spotifyFetch(comDispositivo("/me/player/shuffle?state=true"), {
+      res = await spotifyFetch(`/me/player/play?device_id=${deviceId}`, {
         method: "PUT",
+        body,
       });
-    },
-    faixa?.preview_url ?? null,
-  );
+    }
+
+    if (res?.status === 403) {
+      falhou = "premium";
+      return;
+    }
+    if (res?.status === 404) {
+      falhou = "nodevice";
+      return;
+    }
+    if (!res?.ok && res?.status !== 204) {
+      falhou = "fail";
+      return;
+    }
+
+    await spotifyFetch(comDispositivo("/me/player/shuffle?state=true"), {
+      method: "PUT",
+    });
+  }, previewInicio);
 
   if (falhou) return falhou;
   return ok ? resultado : "cancelled";

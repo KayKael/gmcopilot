@@ -254,8 +254,9 @@ function Manual() {
           pára a sessão mas os controlos manuais continuam.
         </p>
         <p>
-          <strong>SFX silenciosos</strong>: se os MP3 em <code>public/sfx/</code> estiverem
-          vazios, a app usa tons procedurais como fallback.
+          <strong>SFX</strong>: packs (DnD, Ordem Paranormal, custom) nas Definições; no
+          dashboard escolhes o perfil. MP3 em <code>public/sfx/</code> (Mixkit); se vazio,
+          fallback procedural.
         </p>
         <p>
           <strong>OPENAI_API_KEY</strong>: necessária para transcrição, classificação, RAG e

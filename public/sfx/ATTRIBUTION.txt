@@ -1,0 +1,9 @@
+Sound effects in this folder are Mixkit free SFX (https://mixkit.co/free-sound-effects/),
+except coracao.mp3 — original file from efects/shidenbeatsmusic-heartbeat-sound-effect-111218.mp3
+(Pixabay / Shiden Beats Music — check original license on Pixabay).
+
+Mixkit License — free for commercial and non-commercial use.
+Replace any file with your own MP3 keeping the same filename.
+
+Ordem Paranormal extras (sessão Odol Hiria / Último Batimento):
+sussurro, ritual, gotas, correntes, forja, portal, grito, relogio, estatica, impacto

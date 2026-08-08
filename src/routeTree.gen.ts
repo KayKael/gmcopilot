@@ -10,15 +10,29 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApresentarRouteImport } from './routes/apresentar'
+import { Route as AudioRouteImport } from './routes/audio'
 import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as VisualRouteImport } from './routes/visual'
+import { Route as VozRouteImport } from './routes/voz'
 import { Route as SessoesIndexRouteImport } from './routes/sessoes.index'
 import { Route as SessoesIdRouteImport } from './routes/sessoes.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApresentarRoute = ApresentarRouteImport.update({
+  id: '/apresentar',
+  path: '/apresentar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AudioRoute = AudioRouteImport.update({
+  id: '/audio',
+  path: '/audio',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CallbackRoute = CallbackRouteImport.update({
@@ -36,6 +50,16 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const VisualRoute = VisualRouteImport.update({
+  id: '/visual',
+  path: '/visual',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VozRoute = VozRouteImport.update({
+  id: '/voz',
+  path: '/voz',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SessoesIndexRoute = SessoesIndexRouteImport.update({
   id: '/sessoes/',
   path: '/sessoes/',
@@ -49,50 +73,89 @@ const SessoesIdRoute = SessoesIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/apresentar': typeof ApresentarRoute
+  '/audio': typeof AudioRoute
   '/callback': typeof CallbackRoute
   '/docs': typeof DocsRoute
   '/settings': typeof SettingsRoute
+  '/visual': typeof VisualRoute
+  '/voz': typeof VozRoute
   '/sessoes/$id': typeof SessoesIdRoute
   '/sessoes/': typeof SessoesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/apresentar': typeof ApresentarRoute
+  '/audio': typeof AudioRoute
   '/callback': typeof CallbackRoute
   '/docs': typeof DocsRoute
   '/settings': typeof SettingsRoute
+  '/visual': typeof VisualRoute
+  '/voz': typeof VozRoute
   '/sessoes/$id': typeof SessoesIdRoute
   '/sessoes': typeof SessoesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/apresentar': typeof ApresentarRoute
+  '/audio': typeof AudioRoute
   '/callback': typeof CallbackRoute
   '/docs': typeof DocsRoute
   '/settings': typeof SettingsRoute
+  '/visual': typeof VisualRoute
+  '/voz': typeof VozRoute
   '/sessoes/$id': typeof SessoesIdRoute
   '/sessoes/': typeof SessoesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/callback' | '/docs' | '/settings' | '/sessoes/$id' | '/sessoes/'
-  fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/callback' | '/docs' | '/settings' | '/sessoes/$id' | '/sessoes'
-  id:
-    | '__root__'
     | '/'
+    | '/apresentar'
+    | '/audio'
     | '/callback'
     | '/docs'
     | '/settings'
+    | '/visual'
+    | '/voz'
+    | '/sessoes/$id'
+    | '/sessoes/'
+  fileRoutesByTo: FileRoutesByTo
+  to:
+    | '/'
+    | '/apresentar'
+    | '/audio'
+    | '/callback'
+    | '/docs'
+    | '/settings'
+    | '/visual'
+    | '/voz'
+    | '/sessoes/$id'
+    | '/sessoes'
+  id:
+    | '__root__'
+    | '/'
+    | '/apresentar'
+    | '/audio'
+    | '/callback'
+    | '/docs'
+    | '/settings'
+    | '/visual'
+    | '/voz'
     | '/sessoes/$id'
     | '/sessoes/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApresentarRoute: typeof ApresentarRoute
+  AudioRoute: typeof AudioRoute
   CallbackRoute: typeof CallbackRoute
   DocsRoute: typeof DocsRoute
   SettingsRoute: typeof SettingsRoute
+  VisualRoute: typeof VisualRoute
+  VozRoute: typeof VozRoute
   SessoesIdRoute: typeof SessoesIdRoute
   SessoesIndexRoute: typeof SessoesIndexRoute
 }
@@ -104,6 +167,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/apresentar': {
+      id: '/apresentar'
+      path: '/apresentar'
+      fullPath: '/apresentar'
+      preLoaderRoute: typeof ApresentarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/audio': {
+      id: '/audio'
+      path: '/audio'
+      fullPath: '/audio'
+      preLoaderRoute: typeof AudioRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/callback': {
@@ -127,6 +204,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/visual': {
+      id: '/visual'
+      path: '/visual'
+      fullPath: '/visual'
+      preLoaderRoute: typeof VisualRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/voz': {
+      id: '/voz'
+      path: '/voz'
+      fullPath: '/voz'
+      preLoaderRoute: typeof VozRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sessoes/': {
       id: '/sessoes/'
       path: '/sessoes'
@@ -146,12 +237,26 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApresentarRoute: ApresentarRoute,
+  AudioRoute: AudioRoute,
   CallbackRoute: CallbackRoute,
   DocsRoute: DocsRoute,
   SettingsRoute: SettingsRoute,
+  VisualRoute: VisualRoute,
+  VozRoute: VozRoute,
   SessoesIdRoute: SessoesIdRoute,
   SessoesIndexRoute: SessoesIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

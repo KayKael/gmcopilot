@@ -29,7 +29,7 @@ function CallbackPage() {
     void (async () => {
       if (erro || !code) {
         toast.error("Ligação ao Spotify cancelada");
-        void navigate({ to: "/" });
+        void navigate({ to: "/audio" });
         return;
       }
       try {
@@ -39,7 +39,7 @@ function CallbackPage() {
         toast.error(e instanceof Error ? e.message : "Falha a ligar o Spotify");
         setMensagem("Falhou. A voltar…");
       }
-      void navigate({ to: "/" });
+      void navigate({ to: "/audio" });
     })();
   }, [navigate]);
 

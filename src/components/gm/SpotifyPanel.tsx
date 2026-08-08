@@ -10,6 +10,8 @@ import {
   getDeviceId,
   redirectUri,
   getCrossfadeEnabled,
+  obterVolumePreferido,
+  obterVolumeSpotify,
 } from "@/lib/spotify";
 import { moodByKey } from "@/lib/music-moods";
 import { useSessionStore } from "@/store/session";
@@ -25,7 +27,7 @@ export function SpotifyPanel() {
   const setCrossfade = useSessionStore((s) => s.setCrossfade);
   const { ligar, desligar, recarregarDispositivos } = useSpotify();
   const tocarMood = useTocarMood();
-  const [volume, setVolume] = useState(70);
+  const [volume, setVolume] = useState(() => obterVolumePreferido(70));
   const ativo = getDeviceId();
   const uriCallback =
     typeof window !== "undefined" ? redirectUri() : "http://127.0.0.1:8080/callback";
@@ -35,6 +37,10 @@ export function SpotifyPanel() {
     setCrossfade(getCrossfadeEnabled());
   }, [setCrossfade]);
 
+  useEffect(() => {
+    if (spotifyStatus !== "ligado") return;
+    void obterVolumeSpotify().then((v) => setVolume(v));
+  }, [spotifyStatus]);
 
   return (
     <section className="rounded-lg border border-border bg-panel p-4">
@@ -111,8 +117,8 @@ export function SpotifyPanel() {
             </div>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Crossfade usa o preview de 30s no browser sobreposto ao volume do Spotify. Religa a
-            conta se as playlists privadas falharem (novos scopes).
+            Crossfade: pedaço do início da próxima (Deezer/iTunes) em simultâneo com a actual;
+            o Spotify continua a partir desse ponto. Religa a conta se pedir permissões novas.
           </p>
 
           <div>

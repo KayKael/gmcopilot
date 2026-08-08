@@ -1,10 +1,23 @@
-import { Link } from "@tanstack/react-router";
-import { Keyboard, Radio, Settings, FileText, Play, Square, Mic, MicOff, History } from "lucide-react";
+import { Link, useRouterState } from "@tanstack/react-router";
+import {
+  Keyboard,
+  Radio,
+  Settings,
+  FileText,
+  Play,
+  Square,
+  Mic,
+  MicOff,
+  History,
+  AudioWaveform,
+  ImageIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useSessionStore } from "@/store/session";
 import { useSpotify } from "@/hooks/useSpotify";
 import { useTranscricao } from "@/hooks/useTranscricao";
+import { cn } from "@/lib/utils";
 
 const atalhos: [string, string][] = [
   ["1 – 6", "Mudar de cena (combate → épico)"],
@@ -14,6 +27,7 @@ const atalhos: [string, string][] = [
 ];
 
 export function TopBar() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const status = useSessionStore((s) => s.status);
   const spotifyStatus = useSessionStore((s) => s.spotifyStatus);
   const { ligar, desligar } = useSpotify();
@@ -29,6 +43,31 @@ export function TopBar() {
         <Radio className="h-5 w-5 text-primary" />
         <span className="text-sm font-semibold tracking-tight">GM Co-Pilot</span>
       </Link>
+
+      <nav className="ml-1 flex items-center gap-1">
+        <Button
+          asChild
+          size="sm"
+          variant={pathname.startsWith("/audio") ? "secondary" : "ghost"}
+          className={cn("h-8 gap-1.5 px-2.5", pathname.startsWith("/audio") && "text-foreground")}
+        >
+          <Link to="/audio">
+            <AudioWaveform className="h-3.5 w-3.5" />
+            Áudio
+          </Link>
+        </Button>
+        <Button
+          asChild
+          size="sm"
+          variant={pathname.startsWith("/visual") ? "secondary" : "ghost"}
+          className={cn("h-8 gap-1.5 px-2.5", pathname.startsWith("/visual") && "text-foreground")}
+        >
+          <Link to="/visual">
+            <ImageIcon className="h-3.5 w-3.5" />
+            Visual
+          </Link>
+        </Button>
+      </nav>
 
       <span
         className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
@@ -118,6 +157,11 @@ export function TopBar() {
         <Button asChild variant="ghost" size="icon" aria-label="Histórico de sessões">
           <Link to="/sessoes">
             <History className="h-4 w-4" />
+          </Link>
+        </Button>
+        <Button asChild variant="ghost" size="icon" aria-label="Alteração de voz">
+          <Link to="/voz">
+            <AudioWaveform className="h-4 w-4" />
           </Link>
         </Button>
         <Button asChild variant="ghost" size="icon" aria-label="Documentação">

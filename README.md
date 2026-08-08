@@ -51,7 +51,7 @@ Nunca uses prefixo `VITE_` em segredos. O ficheiro `.env` está no `.gitignore`.
 1. Ligar Spotify → escolher dispositivo  
 2. Iniciar Sessão → microfone → linhas em `transcript_lines`  
 3. Auto-classificação a cada ~15s (ou “Classificar agora”) → troca cena + playlist  
-4. SFX: grelha / Q–Y (tons procedurais se MP3 vazio)  
+4. SFX: escolher pack no dropdown · grelha / Q–Y (MP3 em `public/sfx/`)   
 5. Perguntar com `/` → RAG  
 6. Parar Sessão → resumo em `sessions.resumo` → histórico em `/sessoes`
 
@@ -72,7 +72,7 @@ Nunca uses prefixo `VITE_` em segredos. O ficheiro `.env` está no `.gitignore`.
 | Transcrição | `src/hooks/useTranscricao.ts`, `src/lib/realtime-client.ts`, `src/lib/realtime.functions.ts` |
 | Cena | `src/hooks/useClassificador.ts`, `src/hooks/useCena.ts`, `src/lib/cena.functions.ts` |
 | Spotify | `src/lib/spotify.ts`, `src/hooks/useSpotify.ts`, `src/config/spotify.ts` |
-| SFX | `src/lib/sfx.ts`, `src/hooks/useSfx.ts`, `public/sfx/` |
+| SFX | `src/lib/sfx.ts`, `src/lib/sfx-packs.ts`, `src/hooks/useSfx.ts`, `public/sfx/` |
 | RAG | `src/lib/rag.functions.ts`, `src/lib/rag.server.ts`, `src/routes/docs.tsx` |
 | Resumo | `src/lib/sessao.functions.ts`, `src/routes/sessoes.*.tsx` |
 | IA | `src/lib/ai.server.ts` |
@@ -86,7 +86,7 @@ Nunca uses prefixo `VITE_` em segredos. O ficheiro `.env` está no `.gitignore`.
 | Falha a indexar / SERVICE_ROLE | Define `SUPABASE_SERVICE_ROLE_KEY` ou usa publishable com RLS aberta |
 | Classificação / resumo / RAG falha | `OPENAI_API_KEY` com créditos, ou `LOVABLE_API_KEY` como fallback; reinicia `npm run dev` |
 | OpenAI “no credits remaining” | [Billing OpenAI](https://platform.openai.com/settings/organization/billing/) — Realtime pode ainda funcionar; chat/embeddings precisam de créditos |
-| SFX sem som | MP3s em `public/sfx/` vazios → fallback procedural activo; substitui por MP3 reais quando quiseres |
+| SFX sem som | Se um MP3 em `public/sfx/` estiver vazio/ausente → fallback procedural; podes substituir os ficheiros pelos teus |
 | Transcrição a reconectar | Até 3 retries automáticos; depois pára a sessão |
 
 ## Checklist pré-sessão

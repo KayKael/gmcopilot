@@ -3,6 +3,8 @@
  * Captura o microfone e devolve texto parcial/final por callback.
  */
 
+import { restricoesAudio } from "@/lib/mic-device";
+
 export interface OpcoesTranscricao {
   token: string;
   deviceId?: string | null;
@@ -19,13 +21,9 @@ export interface SessaoTranscricao {
 export async function iniciarTranscricao(op: OpcoesTranscricao): Promise<SessaoTranscricao> {
   op.onEstado("a-ligar");
 
-  const audio: MediaTrackConstraints = {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-  };
-  if (op.deviceId) audio.deviceId = { exact: op.deviceId };
-  const stream = await navigator.mediaDevices.getUserMedia({ audio });
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: restricoesAudio(op.deviceId),
+  });
 
   const pc = new RTCPeerConnection({
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -34,8 +32,14 @@ export async function iniciarTranscricao(op: OpcoesTranscricao): Promise<SessaoT
 
   const dc = pc.createDataChannel("oai-events");
   const parciais = new Map<string, string>();
+  let fechado = false;
 
-  dc.addEventListener("open", () => op.onEstado("ligado"));
+  const emitirEstado = (estado: "a-ligar" | "ligado" | "fechado" | "erro") => {
+    if (fechado && estado !== "fechado") return;
+    op.onEstado(estado);
+  };
+
+  dc.addEventListener("open", () => emitirEstado("ligado"));
   dc.addEventListener("message", (e) => {
     let msg: {
       type?: string;
@@ -60,14 +64,15 @@ export async function iniciarTranscricao(op: OpcoesTranscricao): Promise<SessaoT
       parciais.delete(id);
       op.onParcial([...parciais.values()].join(" ").trim());
       if (texto) op.onFinal(texto);
-    } else if (tipo === "error") {
-      console.error("Realtime:", msg.error?.message);
+    } else if (tipo === "error" || tipo.endsWith(".error")) {
+      console.error("Realtime:", msg.error?.message ?? tipo, msg);
     }
   });
 
   pc.addEventListener("connectionstatechange", () => {
+    if (fechado) return;
     if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
-      op.onEstado("erro");
+      emitirEstado("erro");
     }
   });
 
@@ -96,6 +101,8 @@ export async function iniciarTranscricao(op: OpcoesTranscricao): Promise<SessaoT
 
   return {
     parar: () => {
+      if (fechado) return;
+      fechado = true;
       try {
         dc.close();
       } catch {
@@ -103,10 +110,12 @@ export async function iniciarTranscricao(op: OpcoesTranscricao): Promise<SessaoT
       }
       stream.getTracks().forEach((t) => t.stop());
       pc.close();
-      op.onEstado("fechado");
+      emitirEstado("fechado");
     },
     setMudo: (mudo: boolean) => {
-      stream.getAudioTracks().forEach((t) => (t.enabled = !mudo));
+      stream.getAudioTracks().forEach((t) => {
+        t.enabled = !mudo;
+      });
     },
   };
 }

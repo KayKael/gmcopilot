@@ -14,13 +14,169 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      doc_chunks: {
+        Row: {
+          chunk_index: number
+          content: string
+          doc_name: string
+          embedding: string | null
+          id: string
+        }
+        Insert: {
+          chunk_index: number
+          content: string
+          doc_name: string
+          embedding?: string | null
+          id?: string
+        }
+        Update: {
+          chunk_index?: number
+          content?: string
+          doc_name?: string
+          embedding?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
+      scene_configs: {
+        Row: {
+          cor: string
+          icone: string
+          id: string
+          key: string
+          nome: string
+          ordem: number
+          sfx_sugeridos: string[]
+          spotify_playlist_uri: string | null
+        }
+        Insert: {
+          cor: string
+          icone: string
+          id?: string
+          key: string
+          nome: string
+          ordem: number
+          sfx_sugeridos?: string[]
+          spotify_playlist_uri?: string | null
+        }
+        Update: {
+          cor?: string
+          icone?: string
+          id?: string
+          key?: string
+          nome?: string
+          ordem?: number
+          sfx_sugeridos?: string[]
+          spotify_playlist_uri?: string | null
+        }
+        Relationships: []
+      }
+      scene_events: {
+        Row: {
+          cena: string
+          confianca: number | null
+          id: string
+          origem: string
+          session_id: string | null
+          ts: string
+        }
+        Insert: {
+          cena: string
+          confianca?: number | null
+          id?: string
+          origem?: string
+          session_id?: string | null
+          ts?: string
+        }
+        Update: {
+          cena?: string
+          confianca?: number | null
+          id?: string
+          origem?: string
+          session_id?: string | null
+          ts?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sessions: {
+        Row: {
+          ended_at: string | null
+          id: string
+          nome: string | null
+          resumo: string | null
+          started_at: string
+        }
+        Insert: {
+          ended_at?: string | null
+          id?: string
+          nome?: string | null
+          resumo?: string | null
+          started_at?: string
+        }
+        Update: {
+          ended_at?: string | null
+          id?: string
+          nome?: string | null
+          resumo?: string | null
+          started_at?: string
+        }
+        Relationships: []
+      }
+      transcript_lines: {
+        Row: {
+          id: string
+          session_id: string | null
+          texto: string
+          ts: string
+        }
+        Insert: {
+          id?: string
+          session_id?: string | null
+          texto: string
+          ts?: string
+        }
+        Update: {
+          id?: string
+          session_id?: string | null
+          texto?: string
+          ts?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transcript_lines_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      match_documents: {
+        Args: {
+          match_count: number
+          match_threshold: number
+          query_embedding: string
+        }
+        Returns: {
+          content: string
+          doc_name: string
+          id: string
+          similarity: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

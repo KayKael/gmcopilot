@@ -1,3 +1,5 @@
+import { restricoesAudio } from "@/lib/mic-device";
+
 export type GravadorAudio = {
   parar: () => Promise<void>;
   setMudo: (mudo: boolean) => void;

@@ -52,6 +52,8 @@ interface SessionState {
   setSpotifyStatus: (s: SpotifyStatus) => void;
   track: SpotifyTrack | null;
   setTrack: (t: SpotifyTrack | null) => void;
+  devices: { id: string; name: string; type: string; is_active: boolean }[];
+  setDevices: (d: SessionState["devices"]) => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({

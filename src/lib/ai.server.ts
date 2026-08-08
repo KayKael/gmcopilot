@@ -77,22 +77,30 @@ export async function chatEstruturado<T>(
 export async function embed(textos: string[]): Promise<number[][]> {
   const key = process.env["OPENAI_API_KEY"];
   if (!key) throw new AIError("OPENAI_API_KEY em falta", 500);
-  const res = await fetch("https://api.openai.com/v1/embeddings", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "text-embedding-3-small",
-      input: textos,
-      dimensions: 1536,
-    }),
-  });
-  if (!res.ok) {
+
+  for (let tentativa = 0; tentativa < 5; tentativa++) {
+    const res = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "text-embedding-3-small",
+        input: textos,
+        dimensions: 1536,
+      }),
+    });
+    if (res.ok) {
+      const json = (await res.json()) as { data?: { embedding: number[] }[] };
+      return (json.data ?? []).map((d) => d.embedding);
+    }
     const detalhe = await res.text();
     console.error("Embeddings:", res.status, detalhe);
-    if (res.status === 429) throw new AIError("Limite de pedidos atingido", 429);
+    if (res.status === 429 || res.status >= 500) {
+      if (tentativa === 4) throw new AIError("Limite de pedidos atingido", 429);
+      await new Promise((r) => setTimeout(r, 1500 * 2 ** tentativa + Math.random() * 500));
+      continue;
+    }
     throw new AIError(`Falha a gerar embeddings (${res.status})`, res.status);
   }
-  const json = (await res.json()) as { data?: { embedding: number[] }[] };
-  return (json.data ?? []).map((d) => d.embedding);
+  throw new AIError("Falha a gerar embeddings", 500);
 }
 

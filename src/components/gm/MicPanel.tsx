@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { iniciarGravador, type GravadorAudio } from "@/lib/audio-recorder";
 import { transcreverBloco } from "@/lib/transcricao.functions";
+import { guardarMicrofone, obterMicrofoneGuardado, restricoesAudio } from "@/lib/mic-device";
 
 const DURACAO_TESTE_MS = 5000;
 
@@ -13,11 +21,14 @@ export function MicPanel() {
   const [aTestar, setATestar] = useState(false);
   const [resultado, setResultado] = useState<string | null>(null);
   const [dispositivo, setDispositivo] = useState<string | null>(null);
+  const [dispositivos, setDispositivos] = useState<MediaDeviceInfo[]>([]);
+  const [selecionado, setSelecionado] = useState<string>("auto");
 
   const streamRef = useRef<MediaStream | null>(null);
   const contextoRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
   const gravadorRef = useRef<GravadorAudio | null>(null);
+
 
   const pararEscuta = async () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);

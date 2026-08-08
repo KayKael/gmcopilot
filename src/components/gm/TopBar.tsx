@@ -111,6 +111,11 @@ export function TopBar() {
           </PopoverContent>
         </Popover>
 
+        <Button asChild variant="ghost" size="icon" aria-label="Histórico de sessões">
+          <Link to="/sessoes">
+            <History className="h-4 w-4" />
+          </Link>
+        </Button>
         <Button asChild variant="ghost" size="icon" aria-label="Documentação">
           <Link to="/docs">
             <FileText className="h-4 w-4" />

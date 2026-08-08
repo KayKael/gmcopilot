@@ -14,6 +14,7 @@ import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SessoesIndexRouteImport } from './routes/sessoes.index'
+import { Route as SessoesIdRouteImport } from './routes/sessoes.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -40,12 +41,18 @@ const SessoesIndexRoute = SessoesIndexRouteImport.update({
   path: '/sessoes/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SessoesIdRoute = SessoesIdRouteImport.update({
+  id: '/sessoes/$id',
+  path: '/sessoes/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/callback': typeof CallbackRoute
   '/docs': typeof DocsRoute
   '/settings': typeof SettingsRoute
+  '/sessoes/$id': typeof SessoesIdRoute
   '/sessoes/': typeof SessoesIndexRoute
 }
 export interface FileRoutesByTo {
@@ -53,6 +60,7 @@ export interface FileRoutesByTo {
   '/callback': typeof CallbackRoute
   '/docs': typeof DocsRoute
   '/settings': typeof SettingsRoute
+  '/sessoes/$id': typeof SessoesIdRoute
   '/sessoes': typeof SessoesIndexRoute
 }
 export interface FileRoutesById {
@@ -61,14 +69,23 @@ export interface FileRoutesById {
   '/callback': typeof CallbackRoute
   '/docs': typeof DocsRoute
   '/settings': typeof SettingsRoute
+  '/sessoes/$id': typeof SessoesIdRoute
   '/sessoes/': typeof SessoesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/callback' | '/docs' | '/settings' | '/sessoes/'
+  fullPaths:
+    '/' | '/callback' | '/docs' | '/settings' | '/sessoes/$id' | '/sessoes/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/callback' | '/docs' | '/settings' | '/sessoes'
-  id: '__root__' | '/' | '/callback' | '/docs' | '/settings' | '/sessoes/'
+  to: '/' | '/callback' | '/docs' | '/settings' | '/sessoes/$id' | '/sessoes'
+  id:
+    | '__root__'
+    | '/'
+    | '/callback'
+    | '/docs'
+    | '/settings'
+    | '/sessoes/$id'
+    | '/sessoes/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -76,6 +93,7 @@ export interface RootRouteChildren {
   CallbackRoute: typeof CallbackRoute
   DocsRoute: typeof DocsRoute
   SettingsRoute: typeof SettingsRoute
+  SessoesIdRoute: typeof SessoesIdRoute
   SessoesIndexRoute: typeof SessoesIndexRoute
 }
 
@@ -116,6 +134,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessoesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sessoes/$id': {
+      id: '/sessoes/$id'
+      path: '/sessoes/$id'
+      fullPath: '/sessoes/$id'
+      preLoaderRoute: typeof SessoesIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -124,6 +149,7 @@ const rootRouteChildren: RootRouteChildren = {
   CallbackRoute: CallbackRoute,
   DocsRoute: DocsRoute,
   SettingsRoute: SettingsRoute,
+  SessoesIdRoute: SessoesIdRoute,
   SessoesIndexRoute: SessoesIndexRoute,
 }
 export const routeTree = rootRouteImport

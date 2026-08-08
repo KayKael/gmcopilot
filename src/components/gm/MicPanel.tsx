@@ -153,6 +153,26 @@ export function MicPanel() {
         </Button>
       </div>
 
+      <div className="mt-4">
+        <Select value={selecionado} onValueChange={(v) => void escolherDispositivo(v)}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue placeholder="Microfone predefinido" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="auto">Predefinido do sistema</SelectItem>
+            {dispositivos.map((d, i) => (
+              <SelectItem key={d.deviceId} value={d.deviceId}>
+                {d.label || `Microfone ${i + 1}`}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Os nomes só aparecem depois de dares permissão de microfone.
+        </p>
+      </div>
+
+
       <div className="mt-4 space-y-2">
         <div className="h-3 w-full overflow-hidden rounded bg-muted">
           <div

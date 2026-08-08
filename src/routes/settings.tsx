@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { TopBar } from "@/components/gm/TopBar";
 import { SpotifyPanel } from "@/components/gm/SpotifyPanel";
+import { SfxPanel } from "@/components/gm/SfxPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -174,6 +175,7 @@ function SettingsPage() {
           )}
 
           <SpotifyPanel />
+          <SfxPanel />
         </div>
       </main>
     </div>

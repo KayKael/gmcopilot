@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Keyboard, Radio, Settings, FileText, Play, Square, Mic, MicOff } from "lucide-react";
+import { Keyboard, Radio, Settings, FileText, Play, Square, Mic, MicOff, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useSessionStore } from "@/store/session";
@@ -111,6 +111,11 @@ export function TopBar() {
           </PopoverContent>
         </Popover>
 
+        <Button asChild variant="ghost" size="icon" aria-label="Histórico de sessões">
+          <Link to="/sessoes">
+            <History className="h-4 w-4" />
+          </Link>
+        </Button>
         <Button asChild variant="ghost" size="icon" aria-label="Documentação">
           <Link to="/docs">
             <FileText className="h-4 w-4" />

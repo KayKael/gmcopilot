@@ -4,10 +4,12 @@ import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { iniciarTranscricao, type SessaoTranscricao } from "@/lib/realtime-client";
 import { criarTokenTranscricao } from "@/lib/realtime.functions";
+import { resumirSessao } from "@/lib/sessao.functions";
 import { useSessionStore } from "@/store/session";
 
 export function useTranscricao() {
   const pedirToken = useServerFn(criarTokenTranscricao);
+  const gerarResumo = useServerFn(resumirSessao);
   const sessaoRef = useRef<SessaoTranscricao | null>(null);
   const {
     status,
@@ -47,8 +49,15 @@ export function useTranscricao() {
         .from("sessions")
         .update({ ended_at: new Date().toISOString() })
         .eq("id", sessionId);
+      try {
+        await gerarResumo({ data: { id: sessionId } });
+        toast.success("Resumo da sessão gerado");
+      } catch (e) {
+        console.error(e);
+        toast.error("Não consegui gerar o resumo da sessão");
+      }
     }
-  }, [sessionId, setParcial, setStatus]);
+  }, [gerarResumo, sessionId, setParcial, setStatus]);
 
   const iniciar = useCallback(async () => {
     if (sessaoRef.current) return;

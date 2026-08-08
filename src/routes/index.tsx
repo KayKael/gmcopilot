@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
 import { TopBar } from "@/components/gm/TopBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,8 +9,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { SFX_KEYS, SFX_META, sceneIcon, type SceneConfig } from "@/lib/scenes";
 import { sceneByKey, useSessionStore } from "@/store/session";
 import { useSpotify } from "@/hooks/useSpotify";
-import { pause, play, seguinte, tocarPlaylist } from "@/lib/spotify";
-import { Music, SkipForward, Play, Pause, Wand2 } from "lucide-react";
+import { useSfx } from "@/hooks/useSfx";
+import { useMudarCena } from "@/hooks/useCena";
+import { useClassificador } from "@/hooks/useClassificador";
+import { perguntarDocs, type RespostaRag } from "@/lib/rag.functions";
+import { pause, play, seguinte } from "@/lib/spotify";
+import { Music, SkipForward, Play, Pause, Wand2, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -65,19 +70,27 @@ function Dashboard() {
     scenes,
     setScenes,
     cenaAtual,
-    setCena,
     confianca,
+    origem,
     autoClassify,
     setAutoClassify,
     linhas,
     parcial,
     track,
     sfxSugeridos,
-    setSfxSugeridos,
   } = useSessionStore();
   const spotifyStatus = useSessionStore((s) => s.spotifyStatus);
   const { refrescar } = useSpotify();
+  const mudarCena = useMudarCena();
+  const { classificarAgora, aClassificar } = useClassificador();
+  const { disparar, aTocar } = useSfx();
   const fimRef = useRef<HTMLDivElement | null>(null);
+
+  const [pergunta, setPergunta] = useState("");
+  const [aPerguntar, setAPerguntar] = useState(false);
+  const [resposta, setResposta] = useState<RespostaRag | null>(null);
+  const perguntar = useServerFn(perguntarDocs);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     fimRef.current?.scrollIntoView({ block: "end" });
@@ -98,19 +111,6 @@ function Dashboard() {
   const cor = cena?.cor ?? "#71717a";
   const sugeridos = (sfxSugeridos.length ? sfxSugeridos : (cena?.sfx_sugeridos ?? [])).slice(0, 3);
 
-  function mudarCena(key: SceneConfig["key"]) {
-    setCena(key, "manual", null);
-    setSfxSugeridos([]);
-    const alvo = scenes.find((s) => s.key === key);
-    if (spotifyStatus === "ligado" && alvo?.spotify_playlist_uri) {
-      void (async () => {
-        const ok = await tocarPlaylist(alvo.spotify_playlist_uri!);
-        if (!ok) toast.error("Não consegui trocar a playlist (verifica o dispositivo ativo)");
-        await refrescar();
-      })();
-    }
-  }
-
   async function controlo(acao: "play" | "pause" | "next") {
     if (spotifyStatus !== "ligado") {
       toast.error("Liga o Spotify primeiro");
@@ -122,11 +122,30 @@ function Dashboard() {
     setTimeout(() => void refrescar(), 400);
   }
 
-  // Atalhos: 1–6 muda de cena, espaço faz play/pause
+  async function enviarPergunta(texto: string) {
+    if (!texto.trim() || aPerguntar) return;
+    setAPerguntar(true);
+    setResposta(null);
+    try {
+      setResposta(await perguntar({ data: { pergunta: texto.trim() } }));
+    } catch (e) {
+      console.error(e);
+      toast.error("Não consegui consultar as notas");
+    } finally {
+      setAPerguntar(false);
+    }
+  }
+
+  // Atalhos: 1–6 muda de cena, espaço play/pause, "/" foca a pergunta
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.key === "/") {
+        e.preventDefault();
+        inputRef.current?.focus();
+        return;
+      }
       if (e.code === "Space") {
         e.preventDefault();
         void controlo(track?.aTocar ? "pause" : "play");
@@ -135,7 +154,7 @@ function Dashboard() {
       const n = Number(e.key);
       if (n >= 1 && n <= 9) {
         const alvo = scenes.find((s) => s.ordem === n);
-        if (alvo) mudarCena(alvo.key);
+        if (alvo) void mudarCena(alvo.key, "manual");
       }
     }
     window.addEventListener("keydown", onKey);
@@ -143,7 +162,6 @@ function Dashboard() {
   });
 
   const Icon = sceneIcon(cena?.icone ?? "");
-
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
@@ -177,7 +195,13 @@ function Dashboard() {
             style={{ borderColor: cor, boxShadow: `0 0 24px -14px ${cor}` }}
             extra={
               <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" disabled>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={aClassificar}
+                  onClick={classificarAgora}
+                >
+                  {aClassificar ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                   Classificar agora
                 </Button>
                 <Button
@@ -192,20 +216,29 @@ function Dashboard() {
           >
             <div className="flex items-center gap-3">
               <Icon className="h-10 w-10" style={{ color: cor }} />
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="text-2xl font-semibold" style={{ color: cor }}>
                   {cena?.nome ?? "Sem cena"}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {confianca != null ? `Confiança ${(confianca * 100).toFixed(0)}%` : "Manual"}
+                  {origem === "auto" ? "Automático" : origem === "manual" ? "Manual" : "—"}
+                  {confianca != null ? ` · confiança ${(confianca * 100).toFixed(0)}%` : ""}
                 </p>
+                {confianca != null && (
+                  <div className="mt-1 h-1 w-full overflow-hidden rounded bg-secondary">
+                    <div
+                      className="h-full rounded"
+                      style={{ width: `${confianca * 100}%`, backgroundColor: cor }}
+                    />
+                  </div>
+                )}
               </div>
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {scenes.map((s) => (
                 <button
                   key={s.id}
-                  onClick={() => mudarCena(s.key)}
+                  onClick={() => void mudarCena(s.key, "manual")}
                   className="rounded-md border px-2 py-1 text-xs transition-colors hover:bg-secondary"
                   style={s.key === cenaAtual ? { borderColor: s.cor, color: s.cor } : undefined}
                 >
@@ -271,8 +304,12 @@ function Dashboard() {
                     return (
                       <button
                         key={sfx}
-                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-md border text-xs"
-                        style={{ borderColor: cor }}
+                        onClick={() => disparar(sfx)}
+                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-md border text-xs transition-transform active:scale-95"
+                        style={{
+                          borderColor: cor,
+                          backgroundColor: aTocar === sfx ? `${cor}22` : undefined,
+                        }}
                       >
                         <I className="h-4 w-4" style={{ color: cor }} />
                         {meta.nome}
@@ -283,13 +320,22 @@ function Dashboard() {
               </div>
             )}
             <div className="grid grid-cols-5 gap-2">
-              {SFX_KEYS.map((sfx) => {
+              {SFX_KEYS.map((sfx, i) => {
                 const I = SFX_META[sfx].icon;
+                const tecla = ["Q", "W", "E", "R", "T", "Y"][i];
                 return (
                   <button
                     key={sfx}
-                    className="flex h-24 flex-col items-center justify-center gap-1.5 rounded-md border border-border bg-secondary/40 text-xs transition-colors hover:bg-secondary"
+                    onClick={() => disparar(sfx)}
+                    className={`relative flex h-24 flex-col items-center justify-center gap-1.5 rounded-md border bg-secondary/40 text-xs transition-colors hover:bg-secondary active:scale-95 ${
+                      aTocar === sfx ? "border-primary bg-secondary" : "border-border"
+                    }`}
                   >
+                    {tecla && (
+                      <kbd className="absolute left-1 top-1 rounded border border-border px-1 text-[10px] text-muted-foreground">
+                        {tecla}
+                      </kbd>
+                    )}
                     <I className="h-5 w-5 text-muted-foreground" />
                     {SFX_META[sfx].nome}
                   </button>
@@ -303,9 +349,42 @@ function Dashboard() {
           <section className="rounded-lg border border-border bg-panel p-3">
             <div className="flex items-center gap-2">
               <Wand2 className="h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Perguntar à campanha…" disabled className="flex-1" />
-              <Button disabled>Perguntar</Button>
+              <Input
+                ref={inputRef}
+                value={pergunta}
+                onChange={(e) => setPergunta(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void enviarPergunta(pergunta);
+                  if (e.key === "Escape") e.currentTarget.blur();
+                }}
+                placeholder="Perguntar à campanha…  (/)"
+                className="flex-1"
+              />
+              <Button disabled={aPerguntar} onClick={() => void enviarPergunta(pergunta)}>
+                {aPerguntar ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Perguntar
+              </Button>
             </div>
+            {resposta && (
+              <div className="mt-3 space-y-2">
+                <p className="whitespace-pre-wrap text-sm">{resposta.resposta}</p>
+                {resposta.fontes.length > 0 && (
+                  <details className="text-xs text-muted-foreground">
+                    <summary className="cursor-pointer">
+                      {resposta.fontes.length} excertos das tuas notas
+                    </summary>
+                    <ul className="mt-2 space-y-2">
+                      {resposta.fontes.map((f, i) => (
+                        <li key={i} className="rounded border border-border p-2">
+                          <span className="font-semibold">{f.doc_name}</span> ·{" "}
+                          {(f.similarity * 100).toFixed(0)}%
+                          <p className="mt-1 line-clamp-4">{f.content}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            )}
           </section>
         </div>
       </div>

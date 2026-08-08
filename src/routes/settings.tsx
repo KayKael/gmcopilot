@@ -100,6 +100,23 @@ function SettingsPage() {
             </Button>
           </div>
 
+          {!loading && rows.some((r) => !r.spotify_playlist_uri?.trim()) && (
+            <div className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-muted-foreground">
+              <p className="font-medium text-foreground">Playlists em falta</p>
+              <p className="mt-1">
+                Preenche o URI <code className="text-foreground">spotify:playlist:…</code> em cada
+                cena e guarda. Sem playlist, a troca automática de música é ignorada.
+              </p>
+              <p className="mt-1">
+                Em falta:{" "}
+                {rows
+                  .filter((r) => !r.spotify_playlist_uri?.trim())
+                  .map((r) => r.nome)
+                  .join(", ")}
+              </p>
+            </div>
+          )}
+
           {loading ? (
             <p className="text-sm text-muted-foreground">A carregar…</p>
           ) : (

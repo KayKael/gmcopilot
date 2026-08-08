@@ -193,10 +193,21 @@ function Manual() {
       </Seccao>
 
       <Seccao titulo="Arranque rápido">
-        <p>1. Liga o Spotify na barra de topo (precisa de um dispositivo ativo a tocar).</p>
-        <p>2. Carrega em “Iniciar Sessão” e autoriza o microfone.</p>
-        <p>3. Configura cores, ícones, playlists e sons por cena em Definições.</p>
-        <p>4. Carrega as notas da campanha no separador “Campanha”.</p>
+        <p>1. Abre a app em http://127.0.0.1:8080 (não uses localhost — o Spotify rejeita).</p>
+        <p>2. Em Definições, cola o Redirect URI e regista-o no Spotify Dashboard.</p>
+        <p>3. Liga o Spotify (Premium + dispositivo activo a tocar).</p>
+        <p>4. Preenche as 6 playlists das cenas e guarda.</p>
+        <p>5. Carrega as notas da campanha no separador “Campanha”.</p>
+        <p>6. “Iniciar Sessão” e autoriza o microfone.</p>
+      </Seccao>
+
+      <Seccao titulo="Variáveis de ambiente (local)">
+        <p>
+          No ficheiro <code>.env</code> (servidor): <code>OPENAI_API_KEY</code>,{" "}
+          <code>SUPABASE_URL</code>, <code>SUPABASE_PUBLISHABLE_KEY</code>, e de preferência{" "}
+          <code>SUPABASE_SERVICE_ROLE_KEY</code>. Nunca uses prefixo <code>VITE_</code> em
+          segredos.
+        </p>
       </Seccao>
 
       <Seccao titulo="Atalhos">
@@ -230,18 +241,30 @@ function Manual() {
 
       <Seccao titulo="Resolução de problemas">
         <p>
-          <strong>Spotify redirect_uri</strong>: adiciona &lt;origem&gt;/callback às Redirect URIs
-          da tua app Spotify (preview, publicado e localhost).
+          <strong>Spotify redirect_uri</strong>: regista exactamente{" "}
+          <code>http://127.0.0.1:8080/callback</code> (com /callback). Spotify rejeita{" "}
+          <code>localhost</code>.
         </p>
         <p>
-          <strong>Sem dispositivo ativo</strong>: começa a tocar algo no Spotify e escolhe o
+          <strong>Sem dispositivo activo</strong>: começa a tocar algo no Spotify e escolhe o
           dispositivo em Definições.
         </p>
         <p>
-          <strong>Transcrição a reconectar</strong>: verifica a ligação e o acesso ao microfone; a
-          sessão retoma sozinha.
+          <strong>Transcrição a reconectar</strong>: tenta até 3 vezes com novo token; se falhar,
+          pára a sessão mas os controlos manuais continuam.
+        </p>
+        <p>
+          <strong>SFX silenciosos</strong>: se os MP3 em <code>public/sfx/</code> estiverem
+          vazios, a app usa tons procedurais como fallback.
+        </p>
+        <p>
+          <strong>OPENAI_API_KEY</strong>: necessária para transcrição, classificação, RAG e
+          resumos. Reinicia o servidor após editar o <code>.env</code>. Se aparecer “créditos
+          esgotados”, adiciona saldo em platform.openai.com ou define{" "}
+          <code>LOVABLE_API_KEY</code> como fallback de chat/embeddings.
         </p>
       </Seccao>
     </div>
   );
 }
+

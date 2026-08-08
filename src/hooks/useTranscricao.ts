@@ -7,10 +7,17 @@ import { criarTokenTranscricao } from "@/lib/realtime.functions";
 import { resumirSessao } from "@/lib/sessao.functions";
 import { useSessionStore } from "@/store/session";
 
+const MAX_RETRIES = 3;
+
 export function useTranscricao() {
   const pedirToken = useServerFn(criarTokenTranscricao);
   const gerarResumo = useServerFn(resumirSessao);
   const sessaoRef = useRef<SessaoTranscricao | null>(null);
+  const retriesRef = useRef(0);
+  const aPararRef = useRef(false);
+  const sidRef = useRef<string | null>(null);
+  const aReconectarRef = useRef(false);
+
   const status = useSessionStore((s) => s.status);
   const setStatus = useSessionStore((s) => s.setStatus);
   const sessionId = useSessionStore((s) => s.sessionId);
@@ -37,28 +44,109 @@ export function useTranscricao() {
     [addLinha],
   );
 
+  const ligarWebRTC = useCallback(
+    async (sid: string) => {
+      const { token } = await pedirToken({ data: undefined });
+      sessaoRef.current = await iniciarTranscricao({
+        token,
+        onParcial: setParcial,
+        onFinal: (texto) => void guardarLinha(texto, sid),
+        onEstado: (estado) => {
+          if (estado === "ligado") {
+            retriesRef.current = 0;
+            aReconectarRef.current = false;
+            setStatus("ativa");
+          } else if (estado === "erro") {
+            if (aPararRef.current || aReconectarRef.current) return;
+            void reconectar();
+          }
+        },
+      });
+      setMicMudo(false);
+    },
+    // reconectar via closure estável abaixo
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [guardarLinha, pedirToken, setMicMudo, setParcial, setStatus],
+  );
+
+  const ligarRef = useRef(ligarWebRTC);
+  ligarRef.current = ligarWebRTC;
+
+  async function reconectar() {
+    if (aPararRef.current || aReconectarRef.current) return;
+    const sid = sidRef.current;
+    if (!sid) {
+      setStatus("parada");
+      return;
+    }
+
+    aReconectarRef.current = true;
+    try {
+      sessaoRef.current?.parar();
+    } catch {
+      /* ignorar */
+    }
+    sessaoRef.current = null;
+
+    if (retriesRef.current >= MAX_RETRIES) {
+      setStatus("parada");
+      aReconectarRef.current = false;
+      toast.error("Ligação de transcrição perdida (sem mais tentativas)");
+      return;
+    }
+
+    retriesRef.current += 1;
+    setStatus("reconectando");
+    toast.message(`A reconectar transcrição (${retriesRef.current}/${MAX_RETRIES})…`);
+
+    try {
+      await ligarRef.current(sid);
+    } catch (e) {
+      console.error(e);
+      aReconectarRef.current = false;
+      if (retriesRef.current >= MAX_RETRIES) {
+        setStatus("parada");
+        toast.error("Não consegui reestabelecer a transcrição");
+      } else {
+        window.setTimeout(() => void reconectar(), 1500 * retriesRef.current);
+      }
+    }
+  }
+
   const parar = useCallback(async () => {
-    sessaoRef.current?.parar();
+    aPararRef.current = true;
+    aReconectarRef.current = false;
+    try {
+      sessaoRef.current?.parar();
+    } catch {
+      /* ignorar */
+    }
     sessaoRef.current = null;
     setParcial("");
     setStatus("parada");
-    if (sessionId) {
+    const sid = sidRef.current ?? sessionId;
+    if (sid) {
       await supabase
         .from("sessions")
         .update({ ended_at: new Date().toISOString() })
-        .eq("id", sessionId);
+        .eq("id", sid);
       try {
-        await gerarResumo({ data: { id: sessionId } });
+        await gerarResumo({ data: { id: sid } });
         toast.success("Resumo da sessão gerado");
       } catch (e) {
         console.error(e);
-        toast.error("Não consegui gerar o resumo da sessão");
+        toast.error(
+          e instanceof Error ? e.message : "Não consegui gerar o resumo da sessão",
+        );
       }
     }
   }, [gerarResumo, sessionId, setParcial, setStatus]);
 
   const iniciar = useCallback(async () => {
     if (sessaoRef.current) return;
+    aPararRef.current = false;
+    aReconectarRef.current = false;
+    retriesRef.current = 0;
     setStatus("reconectando");
     limparTranscricao();
     try {
@@ -69,32 +157,21 @@ export function useTranscricao() {
         .single();
       if (error) throw new Error(error.message);
       const sid = sess.id as string;
+      sidRef.current = sid;
       setSessionId(sid);
-
-      const { token } = await pedirToken({ data: undefined });
-      sessaoRef.current = await iniciarTranscricao({
-        token,
-        onParcial: setParcial,
-        onFinal: (texto) => void guardarLinha(texto, sid),
-        onEstado: (estado) => {
-          if (estado === "ligado") setStatus("ativa");
-          else if (estado === "erro") {
-            setStatus("reconectando");
-            toast.error("Ligação de transcrição perdida");
-          }
-        },
-      });
-      setMicMudo(false);
+      await ligarRef.current(sid);
     } catch (e) {
       console.error(e);
       setStatus("parada");
       toast.error(
         e instanceof DOMException
           ? "Sem acesso ao microfone"
-          : "Não consegui iniciar a transcrição",
+          : e instanceof Error
+            ? e.message
+            : "Não consegui iniciar a transcrição",
       );
     }
-  }, [guardarLinha, limparTranscricao, pedirToken, setMicMudo, setParcial, setSessionId, setStatus]);
+  }, [limparTranscricao, setSessionId, setStatus]);
 
   const alternarMic = useCallback(() => {
     if (!sessaoRef.current) return;
@@ -103,7 +180,6 @@ export function useTranscricao() {
     setMicMudo(novo);
   }, [micMudo, setMicMudo]);
 
-  // Atalho M para silenciar/reativar o microfone
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement | null;
@@ -114,7 +190,17 @@ export function useTranscricao() {
     return () => window.removeEventListener("keydown", onKey);
   }, [alternarMic]);
 
-  useEffect(() => () => sessaoRef.current?.parar(), []);
+  useEffect(
+    () => () => {
+      aPararRef.current = true;
+      try {
+        sessaoRef.current?.parar();
+      } catch {
+        /* ignorar */
+      }
+    },
+    [],
+  );
 
   return { status, iniciar, parar, alternarMic, micMudo };
 }

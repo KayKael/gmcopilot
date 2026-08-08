@@ -1,8 +1,9 @@
-/** Helpers de IA — só corre no servidor. */
+/** Helpers de IA — só corre no servidor. OpenAI primeiro; Lovable como fallback. */
 
-const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
-export const MODELO_RAPIDO = "google/gemini-3.6-flash";
-export const MODELO_FORTE = "google/gemini-3-pro-preview";
+export const MODELO_RAPIDO = "gpt-4o-mini";
+export const MODELO_FORTE = "gpt-4o-mini";
+const MODELO_LOVABLE_RAPIDO = "google/gemini-2.5-flash";
+const MODELO_LOVABLE_FORTE = "google/gemini-2.5-flash";
 
 export class AIError extends Error {
   constructor(
@@ -14,21 +15,57 @@ export class AIError extends Error {
 }
 
 interface Mensagem {
-  role: "system" | "user";
+  role: "system" | "user" | "assistant";
   content: string;
 }
 
-async function chamarGateway(body: Record<string, unknown>) {
+function mapModeloLovable(model: string): string {
+  if (model === MODELO_FORTE || model.includes("pro")) return MODELO_LOVABLE_FORTE;
+  return MODELO_LOVABLE_RAPIDO;
+}
+
+async function chamarOpenAI(body: Record<string, unknown>) {
+  const key = process.env["OPENAI_API_KEY"];
+  if (!key) throw new AIError("OPENAI_API_KEY em falta no servidor", 500);
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detalhe = await res.text();
+    console.error("OpenAI chat:", res.status, detalhe);
+    const semCreditos =
+      res.status === 429 ||
+      res.status === 402 ||
+      /credit|quota|billing/i.test(detalhe);
+    if (semCreditos) throw new AIError("Créditos OpenAI esgotados", 402);
+    throw new AIError("Falha no serviço de IA", res.status);
+  }
+  return (await res.json()) as {
+    choices?: {
+      message?: {
+        content?: string;
+        tool_calls?: { function?: { arguments?: string } }[];
+      };
+    }[];
+  };
+}
+
+async function chamarLovable(body: Record<string, unknown>) {
   const key = process.env["LOVABLE_API_KEY"];
   if (!key) throw new AIError("LOVABLE_API_KEY em falta", 500);
-  const res = await fetch(GATEWAY, {
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
     const detalhe = await res.text();
-    console.error("AI gateway:", res.status, detalhe);
+    console.error("Lovable chat:", res.status, detalhe);
     if (res.status === 429) throw new AIError("Limite de pedidos atingido", 429);
     if (res.status === 402) throw new AIError("Créditos de IA esgotados", 402);
     throw new AIError("Falha no serviço de IA", res.status);
@@ -43,12 +80,28 @@ async function chamarGateway(body: Record<string, unknown>) {
   };
 }
 
+async function chamarChat(body: Record<string, unknown>, model: string) {
+  if (process.env["OPENAI_API_KEY"]) {
+    try {
+      return await chamarOpenAI({ ...body, model });
+    } catch (e) {
+      if (!(e instanceof AIError) || e.status !== 402 || !process.env["LOVABLE_API_KEY"]) {
+        throw e;
+      }
+      console.warn("OpenAI sem créditos — a usar Lovable AI para chat");
+    }
+  } else if (!process.env["LOVABLE_API_KEY"]) {
+    throw new AIError("OPENAI_API_KEY em falta no servidor", 500);
+  }
+  return chamarLovable({ ...body, model: mapModeloLovable(model) });
+}
+
 /** Resposta em texto simples. */
 export async function chatTexto(
   messages: Mensagem[],
   model = MODELO_RAPIDO,
 ): Promise<string> {
-  const json = await chamarGateway({ model, messages });
+  const json = await chamarChat({ messages, temperature: 0.3 }, model);
   return json.choices?.[0]?.message?.content?.trim() ?? "";
 }
 
@@ -58,12 +111,15 @@ export async function chatEstruturado<T>(
   tool: { name: string; description: string; parameters: Record<string, unknown> },
   model = MODELO_RAPIDO,
 ): Promise<T | null> {
-  const json = await chamarGateway({
+  const json = await chamarChat(
+    {
+      messages,
+      temperature: 0,
+      tools: [{ type: "function", function: tool }],
+      tool_choice: { type: "function", function: { name: tool.name } },
+    },
     model,
-    messages,
-    tools: [{ type: "function", function: tool }],
-    tool_choice: { type: "function", function: { name: tool.name } },
-  });
+  );
   const args = json.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
   if (!args) return null;
   try {
@@ -119,7 +175,8 @@ export async function embed(textos: string[]): Promise<number[][]> {
 
       const semCreditos =
         json.error?.code === "credit_balance_exhausted" ||
-        json.error?.type === "insufficient_quota";
+        json.error?.type === "insufficient_quota" ||
+        /credit|quota|billing/i.test(json.error?.message ?? "");
       console.error("Embeddings OpenAI:", resposta.status, json.error?.code ?? json.error?.type);
       if (semCreditos) break;
       if (resposta.status === 429 || resposta.status >= 500) {
@@ -139,7 +196,10 @@ export async function embed(textos: string[]): Promise<number[][]> {
   }
 
   if (!lovableKey) {
-    throw new AIError("A conta OpenAI está sem créditos", 402);
+    throw new AIError(
+      "Créditos OpenAI esgotados — adiciona créditos ou define LOVABLE_API_KEY",
+      402,
+    );
   }
 
   for (let tentativa = 0; tentativa < 5; tentativa++) {
@@ -167,4 +227,3 @@ export async function embed(textos: string[]): Promise<number[][]> {
 
   throw new AIError("Falha a gerar embeddings", 500);
 }
-

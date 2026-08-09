@@ -5,6 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { TopBar } from "@/components/gm/TopBar";
 import { ResizeCard } from "@/components/gm/DashCard";
 import { VoiceFxCard } from "@/components/gm/VoiceFxCard";
+import { CampanhaMarkdown } from "@/components/gm/CampanhaMarkdown";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -36,6 +37,7 @@ import {
   Repeat,
   Volume2,
   Square,
+  Trash2,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
@@ -233,10 +235,18 @@ function Dashboard() {
     escolherPack,
   } = useSfx();
   const fimRef = useRef<HTMLDivElement | null>(null);
+  const campanhaFimRef = useRef<HTMLDivElement | null>(null);
 
   const [pergunta, setPergunta] = useState("");
   const [aPerguntar, setAPerguntar] = useState(false);
-  const [resposta, setResposta] = useState<RespostaRag | null>(null);
+  const [mensagensCampanha, setMensagensCampanha] = useState<
+    {
+      id: string;
+      role: "user" | "assistant";
+      content: string;
+      fontes?: RespostaRag["fontes"];
+    }[]
+  >([]);
   const [volSfx, setVolSfx] = useState(0.8);
   // Valor estável no SSR; carregar preferência no cliente (evita hydration mismatch)
   const [volMusica, setVolMusica] = useState(70);
@@ -247,6 +257,10 @@ function Dashboard() {
   useEffect(() => {
     fimRef.current?.scrollIntoView({ block: "end" });
   }, [linhas.length, parcial]);
+
+  useEffect(() => {
+    campanhaFimRef.current?.scrollIntoView({ block: "end" });
+  }, [mensagensCampanha.length, aPerguntar]);
 
   useEffect(() => {
     void (async () => {
@@ -318,14 +332,42 @@ function Dashboard() {
   }
 
   async function enviarPergunta(texto: string) {
-    if (!texto.trim() || aPerguntar) return;
+    const perguntaLimpa = texto.trim();
+    if (!perguntaLimpa || aPerguntar) return;
+
+    const historico = mensagensCampanha.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    const idUser = `u-${Date.now()}`;
+    setMensagensCampanha((prev) => [
+      ...prev,
+      { id: idUser, role: "user", content: perguntaLimpa },
+    ]);
+    setPergunta("");
     setAPerguntar(true);
-    setResposta(null);
+
     try {
-      setResposta(await perguntar({ data: { pergunta: texto.trim() } }));
+      const r = await perguntar({
+        data: { pergunta: perguntaLimpa, historico },
+      });
+      setMensagensCampanha((prev) => [
+        ...prev,
+        {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: r.resposta,
+          fontes: r.fontes,
+        },
+      ]);
     } catch (e) {
       console.error(e);
-      toast.error("Não consegui consultar as notas");
+      const msg = e instanceof Error ? e.message : "Não consegui consultar as notas";
+      toast.error(msg.includes("GEMINI") || msg.includes("créditos") || msg.includes("notas")
+        ? msg
+        : "Não consegui consultar as notas");
+      setMensagensCampanha((prev) => prev.filter((m) => m.id !== idUser));
     } finally {
       setAPerguntar(false);
     }
@@ -392,49 +434,87 @@ function Dashboard() {
       defaultSize="60%"
       minSize="20%"
       bodyClassName="flex flex-col !overflow-hidden !p-0"
-      extra={<span className="text-[10px] text-muted-foreground">/</span>}
+      extra={
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-muted-foreground">Gemini</span>
+          {mensagensCampanha.length > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2"
+              title="Limpar conversa"
+              aria-label="Limpar conversa"
+              onClick={() => setMensagensCampanha([])}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
+      }
     >
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto scrollbar-none px-3 py-2.5">
-        {!resposta && !aPerguntar ? (
-          <p className="text-xs text-muted-foreground">
-            Pergunta sobre as tuas notas — o contexto da sessão fica à mão.
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto scrollbar-none px-3 py-2.5">
+        {mensagensCampanha.length === 0 && !aPerguntar ? (
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Chat com as tuas notas — pergunta o que precisares; a conversa mantém contexto.
           </p>
         ) : null}
-        {aPerguntar && !resposta ? (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            A consultar as notas…
-          </div>
-        ) : null}
-        {resposta && (
-          <div className="space-y-2">
-            <div className="rounded-md border border-border/60 bg-secondary/30 px-3 py-2">
-              <p className="whitespace-pre-wrap text-sm leading-relaxed">{resposta.resposta}</p>
+
+        {mensagensCampanha.map((m) => (
+          <div
+            key={m.id}
+            className={`flex flex-col gap-1 ${m.role === "user" ? "items-end" : "items-start"}`}
+          >
+            <span className="px-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80">
+              {m.role === "user" ? "Tu" : "Co-piloto"}
+            </span>
+            <div
+              className={`max-w-[94%] rounded-lg px-3 py-2 ${
+                m.role === "user"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "border border-border/50 bg-secondary/25 shadow-sm"
+              }`}
+            >
+              {m.role === "assistant" ? (
+                <CampanhaMarkdown text={m.content} />
+              ) : (
+                <p className="text-[13px] leading-snug whitespace-pre-wrap">{m.content}</p>
+              )}
             </div>
-            {resposta.fontes.length > 0 && (
-              <details className="text-xs text-muted-foreground">
+            {m.role === "assistant" && m.fontes && m.fontes.length > 0 && (
+              <details className="max-w-[94%] text-[11px] text-muted-foreground">
                 <summary className="cursor-pointer select-none hover:text-foreground">
-                  {resposta.fontes.length} excertos das tuas notas
+                  Fontes · {m.fontes.length}
                 </summary>
-                <ul className="mt-2 space-y-2">
-                  {resposta.fontes.map((f, i) => (
+                <ul className="mt-1.5 space-y-1.5">
+                  {m.fontes.map((f, i) => (
                     <li
                       key={i}
-                      className="rounded-md border border-border/70 bg-background/40 p-2"
+                      className="rounded-md border border-border/60 bg-background/50 px-2 py-1.5"
                     >
-                      <span className="font-medium text-foreground/80">{f.doc_name}</span>
-                      <span className="text-muted-foreground">
-                        {" "}
-                        · {(f.similarity * 100).toFixed(0)}%
-                      </span>
-                      <p className="mt-1 line-clamp-3 text-muted-foreground">{f.content}</p>
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="truncate font-medium text-foreground/85">{f.doc_name}</span>
+                        <span className="shrink-0 tabular-nums text-muted-foreground">
+                          {(f.similarity * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                      <p className="mt-0.5 line-clamp-2 leading-snug text-muted-foreground">
+                        {f.content}
+                      </p>
                     </li>
                   ))}
                 </ul>
               </details>
             )}
           </div>
+        ))}
+
+        {aPerguntar && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            A consultar as notas…
+          </div>
         )}
+        <div ref={campanhaFimRef} />
       </div>
       <div className="shrink-0 border-t border-border bg-panel/80 p-2.5">
         <div className="flex items-center gap-2">
@@ -449,9 +529,10 @@ function Dashboard() {
             }}
             placeholder="Perguntar à campanha…"
             className="h-9 flex-1 text-sm"
+            disabled={aPerguntar}
           />
           <Button size="sm" disabled={aPerguntar} onClick={() => void enviarPergunta(pergunta)}>
-            {aPerguntar ? <Loader2 className="h-4 w-4 animate-spin" /> : "Perguntar"}
+            {aPerguntar ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enviar"}
           </Button>
         </div>
       </div>

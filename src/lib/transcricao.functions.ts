@@ -68,17 +68,11 @@ export const transcreverBloco = createServerFn({ method: "POST" })
     const binario = Uint8Array.from(atob(data.wavBase64), (carater) => carater.charCodeAt(0));
     if (binario.length < 4000) return { texto: "" };
 
-    const openai = process.env["OPENAI_API_KEY"];
-    const lovable = process.env["LOVABLE_API_KEY"];
+    const openai = process.env["OPENAI_API_KEY"]?.trim();
+    const lovable = process.env["LOVABLE_API_KEY"]?.trim();
     const erros: string[] = [];
 
-    if (openai) {
-      try {
-        return { texto: await transcreverOpenAI(binario, openai) };
-      } catch (e) {
-        erros.push(e instanceof Error ? e.message : "openai");
-      }
-    }
+    // Lovable primeiro (OpenAI costuma estar sem créditos)
     if (lovable) {
       try {
         return { texto: await transcreverLovable(binario, lovable) };
@@ -86,14 +80,21 @@ export const transcreverBloco = createServerFn({ method: "POST" })
         erros.push(e instanceof Error ? e.message : "lovable");
       }
     }
+    if (openai) {
+      try {
+        return { texto: await transcreverOpenAI(binario, openai) };
+      } catch (e) {
+        erros.push(e instanceof Error ? e.message : "openai");
+      }
+    }
 
-    if (erros.includes("créditos")) {
+    if (erros.includes("créditos") && !lovable) {
       throw new Error(
-        "Créditos OpenAI esgotados para ficheiros — usa «Iniciar Sessão» (Realtime) para transcrever ao vivo",
+        "Créditos OpenAI esgotados — define LOVABLE_API_KEY no .env, ou usa «Iniciar Sessão» (Realtime)",
       );
     }
     if (!openai && !lovable) {
-      throw new Error("Serviço de transcrição indisponível (sem API key)");
+      throw new Error("Serviço de transcrição indisponível (sem LOVABLE_API_KEY / OPENAI_API_KEY)");
     }
     throw new Error("Não consegui transcrever este bloco de áudio");
   });

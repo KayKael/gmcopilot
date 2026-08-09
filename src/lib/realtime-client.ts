@@ -1,9 +1,9 @@
 /**
  * Cliente WebRTC para a OpenAI Realtime em modo transcrição.
- * Captura o microfone e devolve texto parcial/final por callback.
+ * Captura o microfone (físico ou voz alterada do app) e devolve texto por callback.
  */
 
-import { restricoesAudio } from "@/lib/mic-device";
+import { abrirStreamMicrofone } from "@/lib/mic-device";
 
 export interface OpcoesTranscricao {
   token: string;
@@ -21,9 +21,7 @@ export interface SessaoTranscricao {
 export async function iniciarTranscricao(op: OpcoesTranscricao): Promise<SessaoTranscricao> {
   op.onEstado("a-ligar");
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: restricoesAudio(op.deviceId),
-  });
+  const { stream } = await abrirStreamMicrofone(op.deviceId);
 
   const pc = new RTCPeerConnection({
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],

@@ -11,6 +11,9 @@ export interface PresentationState {
   active_asset_id: string | null;
   public_url: string | null;
   nome: string | null;
+  overlay_asset_id: string | null;
+  overlay_url: string | null;
+  overlay_nome: string | null;
   fade_ms: number;
   updated_at: string;
   /** Monotonic local counter — used to dedupe BC+storage and ignore stale applies. */
@@ -70,6 +73,9 @@ function normalizeState(raw: unknown): PresentationState | null {
     active_asset_id: s.active_asset_id ?? null,
     public_url: s.public_url ?? null,
     nome: s.nome ?? null,
+    overlay_asset_id: s.overlay_asset_id ?? null,
+    overlay_url: s.overlay_url ?? null,
+    overlay_nome: s.overlay_nome ?? null,
     fade_ms: typeof s.fade_ms === "number" ? s.fade_ms : DEFAULT_FADE,
     updated_at:
       typeof s.updated_at === "string" ? s.updated_at : new Date().toISOString(),
@@ -89,13 +95,16 @@ function emptyState(
     active_asset_id: null,
     public_url: null,
     nome: null,
+    overlay_asset_id: prev?.overlay_asset_id ?? null,
+    overlay_url: prev?.overlay_url ?? null,
+    overlay_nome: prev?.overlay_nome ?? null,
     fade_ms,
     updated_at: new Date().toISOString(),
     epoch: nextEpoch(prev),
   };
 }
 
-function buildState(
+function buildBgState(
   asset: VisualAsset | null,
   fade_ms: number,
   prev?: PresentationState | null,
@@ -104,6 +113,9 @@ function buildState(
     active_asset_id: asset?.id ?? null,
     public_url: asset?.public_url ?? null,
     nome: asset?.nome ?? null,
+    overlay_asset_id: prev?.overlay_asset_id ?? null,
+    overlay_url: prev?.overlay_url ?? null,
+    overlay_nome: prev?.overlay_nome ?? null,
     fade_ms,
     updated_at: new Date().toISOString(),
     epoch: nextEpoch(prev),
@@ -205,6 +217,7 @@ async function persistPresentation(state: PresentationState): Promise<void> {
     {
       id: PRESENTATION_ID,
       active_asset_id: state.active_asset_id,
+      overlay_asset_id: state.overlay_asset_id,
       fade_ms: state.fade_ms,
       updated_at: state.updated_at,
     },
@@ -213,12 +226,24 @@ async function persistPresentation(state: PresentationState): Promise<void> {
   if (error) throw error;
 }
 
+async function resolveAssetMeta(
+  id: string | null,
+): Promise<{ public_url: string | null; nome: string | null }> {
+  if (!id) return { public_url: null, nome: null };
+  const { data } = await supabase
+    .from("visual_assets")
+    .select("public_url, nome")
+    .eq("id", id)
+    .maybeSingle();
+  return { public_url: data?.public_url ?? null, nome: data?.nome ?? null };
+}
+
 export async function carregarPresentation(): Promise<PresentationState> {
   const localBefore = readLocalPresentation();
 
   const { data, error } = await supabase
     .from("visual_presentation")
-    .select("active_asset_id, fade_ms, updated_at")
+    .select("active_asset_id, overlay_asset_id, fade_ms, updated_at")
     .eq("id", PRESENTATION_ID)
     .maybeSingle();
 
@@ -242,12 +267,7 @@ export async function carregarPresentation(): Promise<PresentationState> {
       public_url = local.public_url;
       nome = local.nome;
     } else {
-      const { data: asset } = await supabase
-        .from("visual_assets")
-        .select("public_url, nome")
-        .eq("id", data.active_asset_id)
-        .maybeSingle();
-
+      const meta = await resolveAssetMeta(data.active_asset_id);
       const localAfter = readLocalPresentation();
       if (
         localAfter &&
@@ -255,9 +275,29 @@ export async function carregarPresentation(): Promise<PresentationState> {
       ) {
         return localAfter;
       }
+      public_url = meta.public_url;
+      nome = meta.nome;
+    }
+  }
 
-      public_url = asset?.public_url ?? null;
-      nome = asset?.nome ?? null;
+  let overlay_url: string | null = null;
+  let overlay_nome: string | null = null;
+  const overlayId = data.overlay_asset_id ?? null;
+  if (overlayId) {
+    if (local?.overlay_asset_id === overlayId && local.overlay_url) {
+      overlay_url = local.overlay_url;
+      overlay_nome = local.overlay_nome;
+    } else {
+      const meta = await resolveAssetMeta(overlayId);
+      const localAfter = readLocalPresentation();
+      if (
+        localAfter &&
+        parseUpdatedAtMs(localAfter.updated_at) >= parseUpdatedAtMs(data.updated_at)
+      ) {
+        return localAfter;
+      }
+      overlay_url = meta.public_url;
+      overlay_nome = meta.nome;
     }
   }
 
@@ -273,6 +313,9 @@ export async function carregarPresentation(): Promise<PresentationState> {
     active_asset_id: data.active_asset_id,
     public_url,
     nome,
+    overlay_asset_id: overlayId,
+    overlay_url,
+    overlay_nome,
     fade_ms: data.fade_ms ?? DEFAULT_FADE,
     updated_at: data.updated_at,
     epoch: localFinal?.epoch ?? 0,
@@ -286,10 +329,8 @@ export function definirFadeMs(fade_ms: number): PresentationState {
     ...(prev ?? emptyState(clamped, null)),
     fade_ms: clamped,
     updated_at: new Date().toISOString(),
-    // Não sobe epoch: mudar o fade não deve disparar swap na apresentação.
     epoch: prev?.epoch ?? 0,
   };
-  // Escreve local sem “apresentar” de novo — só atualiza duração.
   try {
     localStorage.setItem(VISUAL_STORAGE_KEY, JSON.stringify(state));
   } catch {
@@ -299,14 +340,14 @@ export function definirFadeMs(fade_ms: number): PresentationState {
   return state;
 }
 
-/** Publica de imediato — sem await de rede nem preload. */
+/** Publica fundo de imediato — preserva overlay ativo. */
 export function apresentarAsset(
   asset: VisualAsset | null,
   fade_ms?: number,
 ): PresentationState {
   const prev = readLocalPresentation();
   const fade = fade_ms ?? prev?.fade_ms ?? DEFAULT_FADE;
-  const state = buildState(asset, fade, prev);
+  const state = buildBgState(asset, fade, prev);
 
   publishPresentation(state);
   if (asset?.public_url) void preloadImage(asset.public_url);
@@ -316,6 +357,27 @@ export function apresentarAsset(
 
 export function limparEcran(fade_ms?: number): PresentationState {
   return apresentarAsset(null, fade_ms);
+}
+
+/** Mostra/troca o overlay (preserva o fundo). */
+export function mostrarOverlay(asset: VisualAsset | null): PresentationState {
+  const prev = readLocalPresentation() ?? emptyState(DEFAULT_FADE, null);
+  const state: PresentationState = {
+    ...prev,
+    overlay_asset_id: asset?.id ?? null,
+    overlay_url: asset?.public_url ?? null,
+    overlay_nome: asset?.nome ?? null,
+    updated_at: new Date().toISOString(),
+    epoch: nextEpoch(prev),
+  };
+  publishPresentation(state);
+  if (asset?.public_url) void preloadImage(asset.public_url);
+  void persistPresentation(state).catch((e) => console.error("persist overlay:", e));
+  return state;
+}
+
+export function limparOverlay(): PresentationState {
+  return mostrarOverlay(null);
 }
 
 export function isPresentationWindowOpen(): boolean {

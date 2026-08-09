@@ -1,12 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { iniciarVoiceFx, type VoiceFxEngine } from "@/lib/voice-fx";
+import {
+  activarVoiceFxRuntime,
+  actualizarVoiceFxRuntime,
+  definirExporSistemaRuntime,
+  definirMonitorVoiceFxRuntime,
+  definirSaidaVoiceFxRuntime,
+  obterNivelVoiceFx,
+  pararVoiceFxRuntime,
+  subscreverVoiceFxRuntime,
+  voiceFxAArrancar,
+  voiceFxCaboEntradaLabel,
+  voiceFxEstaActivo,
+  voiceFxExpoeSistema,
+} from "@/lib/voice-fx-runtime";
 import {
   VOICE_PARAMS_DEFAULT,
+  carregarExporSistema,
   carregarMonitorLigado,
   carregarOutputId,
   carregarParamsGuardados,
   carregarPresetKey,
+  guardarExporSistema,
   guardarMonitorLigado,
   guardarOutputId,
   guardarParams,
@@ -14,13 +29,18 @@ import {
   presetByKey,
   type VoiceFxParams,
 } from "@/lib/voice-presets";
-import { obterMicrofoneGuardado } from "@/lib/mic-device";
+import {
+  VB_CABLE_DOWNLOAD,
+  encontrarSaidaCabo,
+  listarDispositivosAudio,
+} from "@/lib/virtual-cable";
 
 export function useVoiceFx() {
-  const engineRef = useRef<VoiceFxEngine | null>(null);
   const rafRef = useRef<number | null>(null);
 
-  const [activo, setActivo] = useState(false);
+  const [activo, setActivo] = useState(() =>
+    typeof window !== "undefined" ? voiceFxEstaActivo() : false,
+  );
   const [aArrancar, setAArrancar] = useState(false);
   const [nivel, setNivel] = useState(0);
   const [presetKey, setPresetKey] = useState("etsai");
@@ -29,6 +49,9 @@ export function useVoiceFx() {
   const [monitorLigado, setMonitorLigado] = useState(true);
   const [outputId, setOutputId] = useState<string | null>(null);
   const [saidas, setSaidas] = useState<MediaDeviceInfo[]>([]);
+  const [exporSistema, setExporSistema] = useState(true);
+  const [caboDetectado, setCaboDetectado] = useState(false);
+  const [micSistemaLabel, setMicSistemaLabel] = useState<string | null>(null);
 
   useEffect(() => {
     const key = carregarPresetKey();
@@ -37,6 +60,7 @@ export function useVoiceFx() {
     setPresetKey(key);
     setMonitorLigado(carregarMonitorLigado());
     setOutputId(carregarOutputId());
+    setExporSistema(carregarExporSistema());
     if (guardados) {
       setParams(guardados);
       const base = preset?.params;
@@ -55,10 +79,20 @@ export function useVoiceFx() {
     }
   }, []);
 
+  const sincronizar = useCallback(() => {
+    setActivo(voiceFxEstaActivo());
+    setAArrancar(voiceFxAArrancar());
+    setExporSistema((prev) => (voiceFxEstaActivo() ? voiceFxExpoeSistema() : prev));
+    setMicSistemaLabel(voiceFxCaboEntradaLabel());
+  }, []);
+
+  useEffect(() => subscreverVoiceFxRuntime(sincronizar), [sincronizar]);
+
   const listarSaidas = useCallback(async () => {
     try {
-      const lista = await navigator.mediaDevices.enumerateDevices();
-      setSaidas(lista.filter((d) => d.kind === "audiooutput"));
+      const { saidas: lista } = await listarDispositivosAudio();
+      setSaidas(lista);
+      setCaboDetectado(!!encontrarSaidaCabo(lista));
     } catch {
       /* sem permissão */
     }
@@ -77,49 +111,61 @@ export function useVoiceFx() {
     setNivel(0);
   };
 
+  useEffect(() => {
+    if (!activo) {
+      pararLoopNivel();
+      return;
+    }
+    const tick = () => {
+      if (!voiceFxEstaActivo()) return;
+      setNivel(obterNivelVoiceFx());
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return pararLoopNivel;
+  }, [activo]);
+
   const parar = useCallback(async () => {
-    pararLoopNivel();
-    const eng = engineRef.current;
-    engineRef.current = null;
-    setActivo(false);
-    if (eng) await eng.parar();
+    await pararVoiceFxRuntime();
   }, []);
 
-  useEffect(() => () => void parar(), [parar]);
-
   const activar = useCallback(async () => {
-    if (engineRef.current || aArrancar) return;
-    setAArrancar(true);
+    if (voiceFxEstaActivo() || voiceFxAArrancar()) return;
     try {
-      const eng = await iniciarVoiceFx({
-        deviceId: obterMicrofoneGuardado(),
+      const querExpor = carregarExporSistema();
+      const res = await activarVoiceFxRuntime({
         outputId,
         params,
         monitorLigado,
+        exporSistema: querExpor,
       });
-      engineRef.current = eng;
-      setActivo(true);
+      setExporSistema(res.exporSistema);
       void listarSaidas();
-
-      const tick = () => {
-        if (!engineRef.current) return;
-        setNivel(engineRef.current.obterNivel());
-        rafRef.current = requestAnimationFrame(tick);
-      };
-      rafRef.current = requestAnimationFrame(tick);
+      if (querExpor && !res.caboOk) {
+        toast.message("VB-Cable não encontrado", {
+          description:
+            "Instala o VB-Cable para o Windows ver a voz alterada como microfone.",
+          action: {
+            label: "Descarregar",
+            onClick: () => window.open(VB_CABLE_DOWNLOAD, "_blank"),
+          },
+        });
+      } else if (res.exporSistema) {
+        toast.success("Microfone de sistema activo", {
+          description: `No Discord/Zoom escolhe “${voiceFxCaboEntradaLabel() ?? "CABLE Output"}”.`,
+        });
+      }
     } catch (erro) {
       console.error(erro);
       toast.error("Não foi possível activar a alteração de voz. Verifica o microfone.");
-    } finally {
-      setAArrancar(false);
     }
-  }, [aArrancar, listarSaidas, monitorLigado, outputId, params]);
+  }, [listarSaidas, monitorLigado, outputId, params]);
 
   const aplicarParams = useCallback((next: VoiceFxParams, marcarPersonalizado = true) => {
     setParams(next);
     guardarParams(next);
     if (marcarPersonalizado) setPersonalizado(true);
-    engineRef.current?.actualizar(next);
+    actualizarVoiceFxRuntime(next);
   }, []);
 
   const escolherPreset = useCallback(
@@ -141,22 +187,47 @@ export function useVoiceFx() {
     [aplicarParams, params],
   );
 
-  const alternarMonitor = useCallback(
-    (ligado: boolean) => {
-      setMonitorLigado(ligado);
-      guardarMonitorLigado(ligado);
-      engineRef.current?.definirMonitor(ligado);
-    },
-    [],
-  );
+  const alternarMonitor = useCallback((ligado: boolean) => {
+    setMonitorLigado(ligado);
+    guardarMonitorLigado(ligado);
+    definirMonitorVoiceFxRuntime(ligado);
+  }, []);
 
   const escolherSaida = useCallback(async (id: string | null) => {
     setOutputId(id);
     guardarOutputId(id);
     try {
-      await engineRef.current?.definirSaida(id);
+      await definirSaidaVoiceFxRuntime(id);
     } catch {
       toast.error("Não foi possível mudar a saída de áudio.");
+    }
+  }, []);
+
+  const alternarExporSistema = useCallback(async (ligado: boolean) => {
+    guardarExporSistema(ligado);
+    if (!voiceFxEstaActivo()) {
+      setExporSistema(ligado);
+      return;
+    }
+    const res = await definirExporSistemaRuntime(ligado);
+    if (ligado && !res.ok) {
+      setExporSistema(false);
+      guardarExporSistema(false);
+      toast.error("VB-Cable não encontrado", {
+        description: "Instala o cabo virtual e volta a tentar.",
+        action: {
+          label: "Descarregar",
+          onClick: () => window.open(VB_CABLE_DOWNLOAD, "_blank"),
+        },
+      });
+      return;
+    }
+    setExporSistema(ligado);
+    setMicSistemaLabel(res.caboLabel);
+    if (ligado) {
+      toast.success("A voz vai para o Windows", {
+        description: `Escolhe “${res.caboLabel ?? "CABLE Output"}” como microfone no Discord.`,
+      });
     }
   }, []);
 
@@ -170,11 +241,16 @@ export function useVoiceFx() {
     monitorLigado,
     outputId,
     saidas,
+    exporSistema,
+    caboDetectado,
+    micSistemaLabel,
+    vbCableUrl: VB_CABLE_DOWNLOAD,
     activar,
     parar,
     escolherPreset,
     actualizarCampo,
     alternarMonitor,
     escolherSaida,
+    alternarExporSistema,
   };
 }

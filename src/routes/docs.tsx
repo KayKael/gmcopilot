@@ -239,6 +239,23 @@ function Manual() {
         </p>
       </Seccao>
 
+      <Seccao titulo="Voz alterada no Discord / Windows">
+        <p>
+          Um site não consegue criar um microfone novo no Windows. Usa o{" "}
+          <a href="https://vb-audio.com/Cable/" target="_blank" rel="noreferrer">
+            VB-Cable
+          </a>{" "}
+          (grátis): a app envia a voz processada para <code>CABLE Input</code>.
+        </p>
+        <p>1. Instala o VB-Cable e reinicia o PC se pedido.</p>
+        <p>2. Em Voz (ou Áudio), liga “Microfone no Windows” e activa a alteração de voz.</p>
+        <p>
+          3. No Discord/Zoom/OBS, escolhe o microfone{" "}
+          <code>CABLE Output (VB-Audio Virtual Cable)</code>.
+        </p>
+        <p>4. Usa auscultadores + “Ouvir-me” para te ouvires sem eco.</p>
+      </Seccao>
+
       <Seccao titulo="Resolução de problemas">
         <p>
           <strong>Spotify redirect_uri</strong>: regista exactamente{" "}

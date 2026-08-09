@@ -11,7 +11,18 @@ import {
 } from "@/components/ui/select";
 import { iniciarTranscricao, type SessaoTranscricao } from "@/lib/realtime-client";
 import { criarTokenTranscricao } from "@/lib/realtime.functions";
-import { guardarMicrofone, obterMicrofoneGuardado, restricoesAudio } from "@/lib/mic-device";
+import {
+  MICROFONE_VOZ_ALTERADA,
+  abrirStreamMicrofone,
+  ehMicrofoneVozAlterada,
+  guardarMicrofone,
+  obterMicrofoneGuardado,
+  onMicrofoneChange,
+} from "@/lib/mic-device";
+import {
+  subscreverVoiceFxRuntime,
+  voiceFxEstaActivo,
+} from "@/lib/voice-fx-runtime";
 
 const DURACAO_TESTE_MS = 8000;
 
@@ -25,6 +36,7 @@ export function MicPanel() {
   const [dispositivo, setDispositivo] = useState<string | null>(null);
   const [dispositivos, setDispositivos] = useState<MediaDeviceInfo[]>([]);
   const [selecionado, setSelecionado] = useState<string>("auto");
+  const [vozAlteradaDisponivel, setVozAlteradaDisponivel] = useState(false);
 
   const streamRef = useRef<MediaStream | null>(null);
   const contextoRef = useRef<AudioContext | null>(null);
@@ -63,15 +75,37 @@ export function MicPanel() {
     }
   };
 
+  const sincronizarMic = () => {
+    const guardado = obterMicrofoneGuardado();
+    setSelecionado(guardado ?? "auto");
+    setVozAlteradaDisponivel(voiceFxEstaActivo());
+  };
+
   useEffect(() => {
-    setSelecionado(obterMicrofoneGuardado() ?? "auto");
+    sincronizarMic();
     void listarDispositivos();
     navigator.mediaDevices?.addEventListener?.("devicechange", listarDispositivos);
-    return () =>
+    const offMic = onMicrofoneChange(sincronizarMic);
+    const offFx = subscreverVoiceFxRuntime(sincronizarMic);
+    return () => {
       navigator.mediaDevices?.removeEventListener?.("devicechange", listarDispositivos);
+      offMic();
+      offFx();
+    };
   }, []);
 
+  // Se a voz alterada desliga e estava seleccionada, o runtime já restaura o mic.
+  useEffect(() => {
+    if (!vozAlteradaDisponivel && ehMicrofoneVozAlterada(selecionado) && aEscutar) {
+      void pararEscuta();
+    }
+  }, [vozAlteradaDisponivel, selecionado, aEscutar]);
+
   const escolherDispositivo = async (valor: string) => {
+    if (valor === MICROFONE_VOZ_ALTERADA && !voiceFxEstaActivo()) {
+      toast.error("Activa primeiro a alteração de voz (Áudio ou Voz).");
+      return;
+    }
     setSelecionado(valor);
     guardarMicrofone(valor === "auto" ? null : valor);
     if (aEscutar) {
@@ -83,12 +117,10 @@ export function MicPanel() {
   const comecarEscuta = async (deviceId?: string | null) => {
     try {
       const id = deviceId ?? (selecionado === "auto" ? null : selecionado);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: restricoesAudio(id),
-      });
+      const { stream, label } = await abrirStreamMicrofone(id);
       void listarDispositivos();
       streamRef.current = stream;
-      setDispositivo(stream.getAudioTracks()[0]?.label ?? "Microfone");
+      setDispositivo(label);
       const contexto = new AudioContext();
       await contexto.resume();
       contextoRef.current = contexto;
@@ -112,7 +144,9 @@ export function MicPanel() {
       medir();
     } catch (erro) {
       console.error(erro);
-      toast.error("Não consegui aceder ao microfone");
+      toast.error(
+        erro instanceof Error ? erro.message : "Não consegui aceder ao microfone",
+      );
     }
   };
 
@@ -185,6 +219,11 @@ export function MicPanel() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="auto">Predefinido do sistema</SelectItem>
+            {vozAlteradaDisponivel || selecionado === MICROFONE_VOZ_ALTERADA ? (
+              <SelectItem value={MICROFONE_VOZ_ALTERADA}>
+                Voz alterada (app)
+              </SelectItem>
+            ) : null}
             {dispositivos.map((d, i) => (
               <SelectItem key={d.deviceId} value={d.deviceId}>
                 {d.label || `Microfone ${i + 1}`}
@@ -193,7 +232,9 @@ export function MicPanel() {
           </SelectContent>
         </Select>
         <p className="mt-1 text-[11px] text-muted-foreground">
-          Os nomes só aparecem depois de dares permissão de microfone.
+          {vozAlteradaDisponivel
+            ? "Com a alteração de voz activa, a sessão usa o microfone virtual do app."
+            : "Os nomes só aparecem depois de dares permissão de microfone."}
         </p>
       </div>
 

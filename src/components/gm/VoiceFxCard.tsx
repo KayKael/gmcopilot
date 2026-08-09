@@ -1,4 +1,4 @@
-import { Loader2, Mic, Square, Volume2 } from "lucide-react";
+import { ExternalLink, Loader2, Mic, Square, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useVoiceFx } from "@/hooks/useVoiceFx";
@@ -18,11 +18,16 @@ export function VoiceFxCard() {
     personalizado,
     params,
     monitorLigado,
+    exporSistema,
+    caboDetectado,
+    micSistemaLabel,
+    vbCableUrl,
     activar,
     parar,
     escolherPreset,
     actualizarCampo,
     alternarMonitor,
+    alternarExporSistema,
   } = useVoiceFx();
 
   const nomePreset =
@@ -32,7 +37,7 @@ export function VoiceFxCard() {
     <div className="flex h-full min-h-0 flex-col gap-2.5">
       {sessaoActiva && (
         <p className="rounded-md border border-warn/40 bg-warn/10 px-2 py-1.5 text-[11px] text-warn">
-          Sessão de transcrição activa — para a sessão para usar a voz.
+          Sessão activa — para-a para activar a voz, ou activa a voz antes da sessão.
         </p>
       )}
 
@@ -73,6 +78,35 @@ export function VoiceFxCard() {
           />
         </div>
       </div>
+
+      <div className="flex items-center justify-between gap-2 rounded-md border border-border px-2.5 py-2">
+        <div className="min-w-0">
+          <p className="text-xs font-medium">Microfone no Windows</p>
+          <p className="truncate text-[10px] text-muted-foreground">
+            {caboDetectado
+              ? exporSistema && activo
+                ? micSistemaLabel ?? "CABLE Output"
+                : "VB-Cable → Discord"
+              : "Requer VB-Cable"}
+          </p>
+        </div>
+        <Switch
+          checked={exporSistema}
+          onCheckedChange={(v) => void alternarExporSistema(v)}
+          aria-label="Expor voz no Windows"
+        />
+      </div>
+      {!caboDetectado && (
+        <a
+          href={vbCableUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
+        >
+          Instalar VB-Cable
+          <ExternalLink className="h-2.5 w-2.5" />
+        </a>
+      )}
 
       <label className="block space-y-1">
         <span className="text-[11px] uppercase tracking-wider text-muted-foreground">

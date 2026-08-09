@@ -1,4 +1,4 @@
-import { restricoesAudio } from "@/lib/mic-device";
+import { abrirStreamMicrofone } from "@/lib/mic-device";
 
 export type GravadorAudio = {
   parar: () => Promise<void>;
@@ -57,9 +57,7 @@ export async function iniciarGravador({
   onErro,
   onSemAudio,
 }: OpcoesGravador): Promise<GravadorAudio> {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: restricoesAudio(deviceId),
-  });
+  const { stream } = await abrirStreamMicrofone(deviceId);
   const contexto = new AudioContext();
   await contexto.resume();
   const origem = contexto.createMediaStreamSource(stream);

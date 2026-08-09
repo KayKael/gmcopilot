@@ -1,8 +1,10 @@
 import {
   AudioWaveform,
+  ExternalLink,
   Headphones,
   Loader2,
   Mic,
+  MonitorSpeaker,
   Square,
   Volume2,
 } from "lucide-react";
@@ -65,12 +67,17 @@ export function VoiceFxPanel() {
     monitorLigado,
     outputId,
     saidas,
+    exporSistema,
+    caboDetectado,
+    micSistemaLabel,
+    vbCableUrl,
     activar,
     parar,
     escolherPreset,
     actualizarCampo,
     alternarMonitor,
     escolherSaida,
+    alternarExporSistema,
   } = useVoiceFx();
 
   return (
@@ -124,17 +131,64 @@ export function VoiceFxPanel() {
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto scrollbar-none p-4">
           {sessaoActiva && (
             <div className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
-              A sessão de transcrição está activa — o microfone está ocupado. Para usar a
-              alteração de voz, para a sessão no dashboard.
+              A sessão de transcrição está activa — para a sessão antes de activar a voz,
+              ou activa a voz primeiro e depois inicia a sessão (usa o microfone do app).
             </div>
           )}
 
           <div className="flex items-start gap-2 rounded-md border border-border/70 bg-secondary/20 px-3 py-2 text-xs text-muted-foreground">
             <Headphones className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <p>
-              Usa <span className="text-foreground/80">auscultadores</span> para evitar eco.
-              Se quiseres mandar a voz para Discord, escolhe um cabo virtual como saída.
+              O browser não cria microfones no Windows. Com o{" "}
+              <span className="text-foreground/80">VB-Cable</span>, a app envia a voz
+              alterada para “CABLE Input” e o Discord usa “CABLE Output” como microfone.
             </p>
+          </div>
+
+          <div className="space-y-2 rounded-md border border-border px-3 py-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="flex items-center gap-1.5 text-sm font-medium">
+                  <MonitorSpeaker className="h-3.5 w-3.5 shrink-0" />
+                  Microfone no Windows
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {caboDetectado
+                    ? exporSistema && activo
+                      ? `Activo → escolhe “${micSistemaLabel ?? "CABLE Output"}” no Discord`
+                      : "VB-Cable detectado — activa a voz para expor"
+                    : "Instala o VB-Cable (grátis) para criar o microfone virtual"}
+                </p>
+              </div>
+              <Switch
+                checked={exporSistema}
+                onCheckedChange={(v) => void alternarExporSistema(v)}
+                aria-label="Expor voz alterada no Windows"
+              />
+            </div>
+            {!caboDetectado && (
+              <a
+                href={vbCableUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+              >
+                Descarregar VB-Cable
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+            {exporSistema && caboDetectado && (
+              <ol className="list-decimal space-y-0.5 pl-4 text-[11px] text-muted-foreground">
+                <li>Activa a alteração de voz nesta página</li>
+                <li>
+                  No Discord/Zoom: microfone ={" "}
+                  <span className="text-foreground/85">
+                    {micSistemaLabel ?? "CABLE Output (VB-Audio Virtual Cable)"}
+                  </span>
+                </li>
+                <li>Usa auscultadores e “Ouvir-me” para te ouvires sem eco</li>
+              </ol>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -209,7 +263,7 @@ export function VoiceFxPanel() {
           {saidas.length > 0 && (
             <label className="block space-y-1.5">
               <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                Saída de áudio
+                {exporSistema ? "Auscultadores (Ouvir-me)" : "Saída de áudio"}
               </span>
               <select
                 className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs"

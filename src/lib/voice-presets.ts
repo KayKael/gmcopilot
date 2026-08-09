@@ -82,6 +82,7 @@ const LS_PRESET = "gmcp.voice.preset";
 const LS_PARAMS = "gmcp.voice.params";
 const LS_MONITOR = "gmcp.voice.monitor";
 const LS_OUTPUT = "gmcp.voice.output";
+const LS_EXPOR = "gmcp.voice.expor-sistema";
 
 export function carregarPresetKey(): string {
   if (typeof window === "undefined") return "etsai";
@@ -129,6 +130,18 @@ export function guardarOutputId(id: string | null) {
   if (typeof window === "undefined") return;
   if (id) window.localStorage.setItem(LS_OUTPUT, id);
   else window.localStorage.removeItem(LS_OUTPUT);
+}
+
+export function carregarExporSistema(): boolean {
+  if (typeof window === "undefined") return true;
+  const v = window.localStorage.getItem(LS_EXPOR);
+  // Por omissão ligado — é o que o utilizador espera para Discord/Windows
+  return v !== "0";
+}
+
+export function guardarExporSistema(ligado: boolean) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(LS_EXPOR, ligado ? "1" : "0");
 }
 
 export function presetByKey(key: string): VoicePreset | undefined {

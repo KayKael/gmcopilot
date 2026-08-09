@@ -2,6 +2,8 @@ import { supabase } from "@/integrations/supabase/client";
 
 export const VISUAL_BUCKET = "visual-assets";
 
+export type VisualAssetKind = "fundo" | "overlay";
+
 export interface VisualAsset {
   id: string;
   nome: string;
@@ -9,6 +11,7 @@ export interface VisualAsset {
   public_url: string;
   ordem: number;
   created_at: string;
+  kind: VisualAssetKind;
 }
 
 const IMAGE_TYPES = new Set([
@@ -19,9 +22,16 @@ const IMAGE_TYPES = new Set([
   "image/avif",
 ]);
 
+const OVERLAY_TYPES = new Set(["image/png", "image/gif", "image/webp"]);
+
 export function isImageFile(file: File): boolean {
   if (IMAGE_TYPES.has(file.type)) return true;
   return /\.(jpe?g|png|webp|gif|avif)$/i.test(file.name);
+}
+
+export function isOverlayFile(file: File): boolean {
+  if (OVERLAY_TYPES.has(file.type)) return true;
+  return /\.(png|gif|webp)$/i.test(file.name);
 }
 
 function safeName(name: string): string {
@@ -32,33 +42,56 @@ function safeName(name: string): string {
     .slice(0, 120);
 }
 
-export async function listarAssets(): Promise<VisualAsset[]> {
-  const { data, error } = await supabase
+function normalizeKind(raw: unknown): VisualAssetKind {
+  return raw === "overlay" ? "overlay" : "fundo";
+}
+
+function mapAsset(row: Record<string, unknown>): VisualAsset {
+  return {
+    id: String(row["id"]),
+    nome: String(row["nome"]),
+    storage_path: String(row["storage_path"]),
+    public_url: String(row["public_url"]),
+    ordem: Number(row["ordem"] ?? 0),
+    created_at: String(row["created_at"] ?? ""),
+    kind: normalizeKind(row["kind"]),
+  };
+}
+
+export async function listarAssets(kind?: VisualAssetKind): Promise<VisualAsset[]> {
+  let q = supabase
     .from("visual_assets")
     .select("*")
     .order("ordem", { ascending: true })
     .order("created_at", { ascending: true });
+  if (kind) q = q.eq("kind", kind);
+  const { data, error } = await q;
   if (error) throw error;
-  return (data ?? []) as VisualAsset[];
+  return (data ?? []).map((row) => mapAsset(row as Record<string, unknown>));
 }
 
-export async function uploadAsset(file: File): Promise<VisualAsset> {
-  if (!isImageFile(file)) {
+export async function uploadAsset(
+  file: File,
+  kind: VisualAssetKind = "fundo",
+): Promise<VisualAsset> {
+  if (kind === "overlay") {
+    if (!isOverlayFile(file)) {
+      throw new Error(`${file.name}: overlays só aceitam png, gif ou webp`);
+    }
+  } else if (!isImageFile(file)) {
     throw new Error(`${file.name}: só aceito imagens (jpg, png, webp, gif, avif)`);
   }
 
   const ext = file.name.includes(".")
     ? file.name.slice(file.name.lastIndexOf("."))
     : "";
-  const path = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${safeName(file.name.replace(/\.[^.]+$/, ""))}${ext}`;
+  const path = `${kind}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${safeName(file.name.replace(/\.[^.]+$/, ""))}${ext}`;
 
-  const { error: upErr } = await supabase.storage
-    .from(VISUAL_BUCKET)
-    .upload(path, file, {
-      cacheControl: "3600",
-      upsert: false,
-      ...(file.type ? { contentType: file.type } : {}),
-    });
+  const { error: upErr } = await supabase.storage.from(VISUAL_BUCKET).upload(path, file, {
+    cacheControl: "3600",
+    upsert: false,
+    ...(file.type ? { contentType: file.type } : {}),
+  });
   if (upErr) throw upErr;
 
   const { data: pub } = supabase.storage.from(VISUAL_BUCKET).getPublicUrl(path);
@@ -67,6 +100,7 @@ export async function uploadAsset(file: File): Promise<VisualAsset> {
   const { data: maxRow } = await supabase
     .from("visual_assets")
     .select("ordem")
+    .eq("kind", kind)
     .order("ordem", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -79,6 +113,7 @@ export async function uploadAsset(file: File): Promise<VisualAsset> {
       storage_path: path,
       public_url,
       ordem,
+      kind,
     })
     .select("*")
     .single();
@@ -86,14 +121,17 @@ export async function uploadAsset(file: File): Promise<VisualAsset> {
     await supabase.storage.from(VISUAL_BUCKET).remove([path]);
     throw error;
   }
-  return data as VisualAsset;
+  return mapAsset(data as Record<string, unknown>);
 }
 
-export async function uploadAssets(files: FileList | File[]): Promise<VisualAsset[]> {
+export async function uploadAssets(
+  files: FileList | File[],
+  kind: VisualAssetKind = "fundo",
+): Promise<VisualAsset[]> {
   const list = Array.from(files);
   const out: VisualAsset[] = [];
   for (const f of list) {
-    out.push(await uploadAsset(f));
+    out.push(await uploadAsset(f, kind));
   }
   return out;
 }

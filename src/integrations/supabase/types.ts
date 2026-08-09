@@ -190,36 +190,6 @@ export type Database = {
         }
         Relationships: []
       }
-      sfx_packs: {
-        Row: {
-          ativo: boolean
-          built_in: boolean
-          efeitos: string[]
-          id: string
-          key: string
-          nome: string
-          ordem: number
-        }
-        Insert: {
-          ativo?: boolean
-          built_in?: boolean
-          efeitos?: string[]
-          id?: string
-          key: string
-          nome: string
-          ordem?: number
-        }
-        Update: {
-          ativo?: boolean
-          built_in?: boolean
-          efeitos?: string[]
-          id?: string
-          key?: string
-          nome?: string
-          ordem?: number
-        }
-        Relationships: []
-      }
       transcript_lines: {
         Row: {
           id: string
@@ -253,6 +223,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          kind: string
           nome: string
           ordem: number
           public_url: string
@@ -261,6 +232,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          kind?: string
           nome: string
           ordem?: number
           public_url: string
@@ -269,6 +241,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          kind?: string
           nome?: string
           ordem?: number
           public_url?: string
@@ -281,24 +254,34 @@ export type Database = {
           active_asset_id: string | null
           fade_ms: number
           id: string
+          overlay_asset_id: string | null
           updated_at: string
         }
         Insert: {
           active_asset_id?: string | null
           fade_ms?: number
           id?: string
+          overlay_asset_id?: string | null
           updated_at?: string
         }
         Update: {
           active_asset_id?: string | null
           fade_ms?: number
           id?: string
+          overlay_asset_id?: string | null
           updated_at?: string
         }
         Relationships: [
           {
             foreignKeyName: "visual_presentation_active_asset_id_fkey"
             columns: ["active_asset_id"]
+            isOneToOne: false
+            referencedRelation: "visual_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_presentation_overlay_asset_id_fkey"
+            columns: ["overlay_asset_id"]
             isOneToOne: false
             referencedRelation: "visual_assets"
             referencedColumns: ["id"]

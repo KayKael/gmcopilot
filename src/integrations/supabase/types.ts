@@ -68,36 +68,6 @@ export type Database = {
         }
         Relationships: []
       }
-      sfx_packs: {
-        Row: {
-          ativo: boolean
-          built_in: boolean
-          efeitos: string[]
-          id: string
-          key: string
-          nome: string
-          ordem: number
-        }
-        Insert: {
-          ativo?: boolean
-          built_in?: boolean
-          efeitos?: string[]
-          id?: string
-          key: string
-          nome: string
-          ordem?: number
-        }
-        Update: {
-          ativo?: boolean
-          built_in?: boolean
-          efeitos?: string[]
-          id?: string
-          key?: string
-          nome?: string
-          ordem?: number
-        }
-        Relationships: []
-      }
       scene_configs: {
         Row: {
           cor: string
